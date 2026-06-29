@@ -1,13 +1,13 @@
 # Field used to detect high-throttle events for autofind. Different
-# Accessport log formats name this column differently; point this at
+# log formats can name this column differently; point this at
 # whichever column holds throttle position for your log format.
 throttleField = "Throttle Pos (%)"
 
 plotNames = ["General", "Boost", "Air", "Fuel", "Timing", "KS Noise", "AVCS"]
 
-# Each tuple is (field, display scale, min_max_enbl). When min_max_enbl is
+# Each tuple is (field, scale factor, min_max_enbl). When min_max_enbl is
 # True, that line's legend label also shows its min/max over the plotted
-# range (rounded to 2 decimal places).
+# range.
 plotFields = {}
 plotFields["General"] = [("Throttle Pos (%)", 0.1, False),
                           ("RPM (RPM)", 0.001, True),

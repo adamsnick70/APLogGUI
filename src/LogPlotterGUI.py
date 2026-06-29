@@ -189,6 +189,113 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.yview_moveto(0)
 
 
+class RangeSlider(ttk.Frame):
+    """A single rail with two draggable handles (start/end, 0-100) - one
+    combined control instead of two separate sliders. The Start %/End %
+    entry boxes and this slider all read/write the same StringVar/DoubleVar
+    pair, so they stay in sync regardless of which one was used.
+
+    on_release fires once - when the mouse button comes up, or a keyboard
+    nudge's key is released - never on every drag tick. Replotting re-reads
+    the CSV and rebuilds the figure, so it should only happen once the user
+    has settled on a value, not dozens of times while they're still dragging.
+    """
+
+    HANDLE_RADIUS = 8
+    TRACK_PAD = 10
+
+    def __init__(self, parent, range_vars, on_release=None, height=28, bg=COLOR_BG):
+        super().__init__(parent)
+        self.range_vars = range_vars
+        self.on_release = on_release
+        self._dragging = None
+        self._selected = "start"
+
+        self.canvas = tk.Canvas(self, height=height, highlightthickness=0, background=bg, takefocus=1)
+        self.canvas.pack(fill="both", expand=True)
+
+        self.canvas.bind("<Configure>", lambda e: self._redraw())
+        self.canvas.bind("<Button-1>", self._on_press)
+        self.canvas.bind("<B1-Motion>", self._on_motion)
+        self.canvas.bind("<ButtonRelease-1>", self._on_mouse_release)
+        self.canvas.bind("<KeyPress-Left>", lambda e: self._move_selected(-1.0))
+        self.canvas.bind("<KeyPress-Right>", lambda e: self._move_selected(1.0))
+        self.canvas.bind("<KeyRelease-Left>", self._on_key_release)
+        self.canvas.bind("<KeyRelease-Right>", self._on_key_release)
+
+        range_vars.startScaleVar.trace_add("write", lambda *_: self._redraw())
+        range_vars.endScaleVar.trace_add("write", lambda *_: self._redraw())
+
+    def _track_bounds(self):
+        w = max(self.canvas.winfo_width(), 2 * self.TRACK_PAD + 1)
+        return self.TRACK_PAD, w - self.TRACK_PAD
+
+    def _value_to_x(self, value):
+        x0, x1 = self._track_bounds()
+        return x0 + (value / 100.0) * (x1 - x0)
+
+    def _x_to_value(self, x):
+        x0, x1 = self._track_bounds()
+        return max(0.0, min(100.0, (x - x0) / (x1 - x0) * 100.0))
+
+    def _redraw(self):
+        self.canvas.delete("all")
+        h = max(self.canvas.winfo_height(), 1)
+        mid = h / 2
+        x0, x1 = self._track_bounds()
+        sx = self._value_to_x(self.range_vars.startScaleVar.get())
+        ex = self._value_to_x(self.range_vars.endScaleVar.get())
+
+        self.canvas.create_line(x0, mid, x1, mid, fill=COLOR_BG_INPUT, width=4, capstyle="round")
+        self.canvas.create_line(sx, mid, ex, mid, fill=COLOR_ACCENT, width=4, capstyle="round")
+        for x in (sx, ex):
+            self.canvas.create_oval(
+                x - self.HANDLE_RADIUS, mid - self.HANDLE_RADIUS,
+                x + self.HANDLE_RADIUS, mid + self.HANDLE_RADIUS,
+                fill=COLOR_ACCENT_HOVER, outline=COLOR_FG,
+            )
+
+    def _closest_handle(self, x):
+        sx = self._value_to_x(self.range_vars.startScaleVar.get())
+        ex = self._value_to_x(self.range_vars.endScaleVar.get())
+        return "start" if abs(x - sx) <= abs(x - ex) else "end"
+
+    def _set_value(self, handle, value):
+        # Handles can't cross - dragging one past the other just stops it
+        # there, rather than dragging the other one along with it.
+        if handle == "start":
+            value = min(value, self.range_vars.endScaleVar.get())
+            self.range_vars.startScaleVar.set(value)
+            self.range_vars.startPrctVar.set(f"{value:.1f}")
+        else:
+            value = max(value, self.range_vars.startScaleVar.get())
+            self.range_vars.endScaleVar.set(value)
+            self.range_vars.endPrctVar.set(f"{value:.1f}")
+
+    def _on_press(self, event):
+        self.canvas.focus_set()
+        self._dragging = self._selected = self._closest_handle(event.x)
+        self._set_value(self._dragging, self._x_to_value(event.x))
+
+    def _on_motion(self, event):
+        if self._dragging:
+            self._set_value(self._dragging, self._x_to_value(event.x))
+
+    def _on_mouse_release(self, event):
+        was_dragging = self._dragging is not None
+        self._dragging = None
+        if was_dragging and self.on_release:
+            self.on_release()
+
+    def _move_selected(self, delta):
+        var = self.range_vars.startScaleVar if self._selected == "start" else self.range_vars.endScaleVar
+        self._set_value(self._selected, var.get() + delta)
+
+    def _on_key_release(self, event):
+        if self.on_release:
+            self.on_release()
+
+
 class LogPlotterGUI(tk.Tk):
     @staticmethod
     def _make_range_vars(start_pct, end_pct):
@@ -309,7 +416,7 @@ class LogPlotterGUI(tk.Tk):
         header_size = round(abs(base_size) * 1.3) * (-1 if base_size < 0 else 1)
         self.header_font = tkfont.Font(family=base_font.actual("family"), size=header_size)
         self.event_header_font = tkfont.Font(
-            family=base_font.actual("family"), size=header_size, weight="bold"
+            family=base_font.actual("family"), size=header_size * 2, weight="bold"
         )
 
         style.configure(
@@ -586,32 +693,28 @@ class LogPlotterGUI(tk.Tk):
         self._toggle_autofind(self.customAutoFindVar, self.customRangeFrame, self._customRangeGridKw)
 
     def _build_range_frame(self, parent, range_vars, on_change=None):
-        """Start %/End % entry+slider pair, shared by both tabs. Caller owns
-        showing/hiding it (via _toggle_autofind) since visibility depends on
-        that tab's own autofind checkbox. on_change, if given, fires after
-        every slider drag or entry edit, e.g. to live-replot an existing chart."""
+        """Start %/End % entry boxes plus a combined two-handle range slider,
+        shared by both tabs. Caller owns showing/hiding the returned frame
+        (via _toggle_autofind) since visibility depends on that tab's own
+        autofind checkbox. on_change, if given, fires once the slider is
+        released (or a keyboard nudge completes, or an entry box is
+        committed) - never mid-drag; see RangeSlider."""
         frame = ttk.Frame(parent)
         ttk.Label(frame, text="Start %:", style="Header.TLabel").grid(row=0, column=0, sticky="w")
         startEntry = ttk.Entry(frame, textvariable=range_vars.startPrctVar, width=6)
         startEntry.grid(row=0, column=1, padx=4)
         startEntry.bind("<Return>", lambda e: self._sync_entry_to_scale(range_vars, "start", on_change))
         startEntry.bind("<FocusOut>", lambda e: self._sync_entry_to_scale(range_vars, "start", on_change))
-        ttk.Scale(
-            frame, from_=0.0, to=100.0, orient="horizontal", length=400,
-            variable=range_vars.startScaleVar,
-            command=lambda v: self._on_start_scale(range_vars, v, on_change),
-        ).grid(row=0, column=2, sticky="we", padx=4)
 
         ttk.Label(frame, text="End %:", style="Header.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
         endEntry = ttk.Entry(frame, textvariable=range_vars.endPrctVar, width=6)
         endEntry.grid(row=1, column=1, padx=4, pady=(4, 0))
         endEntry.bind("<Return>", lambda e: self._sync_entry_to_scale(range_vars, "end", on_change))
         endEntry.bind("<FocusOut>", lambda e: self._sync_entry_to_scale(range_vars, "end", on_change))
-        ttk.Scale(
-            frame, from_=0.0, to=100.0, orient="horizontal", length=400,
-            variable=range_vars.endScaleVar,
-            command=lambda v: self._on_end_scale(range_vars, v, on_change),
-        ).grid(row=1, column=2, sticky="we", padx=4, pady=(4, 0))
+
+        frame.range_slider = RangeSlider(frame, range_vars, on_release=on_change)
+        frame.range_slider.grid(row=0, column=2, rowspan=2, sticky="we", padx=4)
+
         frame.grid_columnconfigure(2, weight=1)
         return frame
 
@@ -624,24 +727,6 @@ class LogPlotterGUI(tk.Tk):
     @staticmethod
     def _clamp_pct(value):
         return max(0.0, min(100.0, value))
-
-    def _on_start_scale(self, range_vars, value, on_change=None):
-        v = self._clamp_pct(float(value))
-        if v > range_vars.endScaleVar.get():
-            range_vars.endScaleVar.set(v)
-            range_vars.endPrctVar.set(f"{v:.1f}")
-        range_vars.startPrctVar.set(f"{v:.1f}")
-        if on_change:
-            on_change()
-
-    def _on_end_scale(self, range_vars, value, on_change=None):
-        v = self._clamp_pct(float(value))
-        if v < range_vars.startScaleVar.get():
-            range_vars.startScaleVar.set(v)
-            range_vars.startPrctVar.set(f"{v:.1f}")
-        range_vars.endPrctVar.set(f"{v:.1f}")
-        if on_change:
-            on_change()
 
     def _sync_entry_to_scale(self, range_vars, which, on_change=None):
         var = range_vars.startPrctVar if which == "start" else range_vars.endPrctVar
@@ -910,10 +995,12 @@ class LogPlotterGUI(tk.Tk):
         ttk.Separator(scroll_area.content).pack(fill="x", pady=(12, 4))
         ttk.Label(
             scroll_area.content,
-            text=f" High Throttle Event {evt_counter} ---------------------------------------",
+            text=f"High Throttle Event {evt_counter}",
             font=self.event_header_font,
             foreground=COLOR_ACCENT_HOVER,
-        ).pack(anchor="w", padx=8, pady=(0, 4))
+            anchor="center",
+            justify="center",
+        ).pack(fill="x", padx=8, pady=(0, 4))
 
     def _embed_figure(self, fig, scroll_area, figures):
         figures.append(fig)

@@ -108,7 +108,7 @@ class CustomAutofindTests(GuiTestCase, unittest.TestCase):
 
 
 class LiveReplotTests(GuiTestCase, unittest.TestCase):
-    def test_dragging_end_slider_after_a_plot_exists_replots_in_place(self):
+    def test_replot_is_deferred_until_the_slider_is_released(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
             self.app.logPath.set(csv_path)
@@ -125,10 +125,20 @@ class LiveReplotTests(GuiTestCase, unittest.TestCase):
             self.assertEqual(len(self.app.customFigures), 1)
             first_fig = self.app.customFigures[0]
 
-            self.app._on_end_scale(self.app.customRange, "90.0", self.app._replot_custom_if_live)
+            slider = self.app.customRangeFrame.range_slider
+            slider._dragging = "end"  # simulate an in-progress mouse drag
+            slider._set_value("end", 90.0)
+
+            self.assertEqual(self.app.customRange.endPrctVar.get(), "90.0")
+            self.assertIs(
+                self.app.customFigures[0], first_fig,
+                "must not replot mid-drag - only once the slider is released",
+            )
+
+            slider._on_mouse_release(None)
 
             self.assertEqual(len(self.app.customFigures), 1)
-            self.assertIsNot(self.app.customFigures[0], first_fig)
+            self.assertIsNot(self.app.customFigures[0], first_fig, "expected a fresh replot once released")
             self.assertEqual(self.app.customRange.endPrctVar.get(), "90.0")
 
     def test_dragging_a_slider_with_no_fields_selected_does_not_pop_a_dialog(self):
@@ -153,7 +163,10 @@ class LiveReplotTests(GuiTestCase, unittest.TestCase):
             stale_fig = self.app.customFigures[0]
 
             self.app._reset_custom_fields()
-            self.app._on_start_scale(self.app.customRange, "5.0", self.app._replot_custom_if_live)
+            slider = self.app.customRangeFrame.range_slider
+            slider._dragging = "start"
+            slider._set_value("start", 5.0)
+            slider._on_mouse_release(None)
 
             self.assertEqual(popups, [], "slider drag popped a dialog instead of skipping silently")
             self.assertIs(

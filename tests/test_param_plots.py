@@ -26,7 +26,7 @@ class ThresholdAndSliderDisplayTests(GuiTestCase, unittest.TestCase):
         self.assertEqual(self.app.paramRange.endPrctVar.get(), "90.0")
 
     def test_dragging_a_slider_updates_the_entry_as_a_percentage(self):
-        self.app._on_start_scale(self.app.paramRange, "37.4")
+        self.app.rangeFrame.range_slider._set_value("start", 37.4)
         self.assertEqual(self.app.paramRange.startPrctVar.get(), "37.4")
 
 
@@ -69,7 +69,7 @@ class AutofindTests(GuiTestCase, unittest.TestCase):
 
 
 class LiveReplotTests(GuiTestCase, unittest.TestCase):
-    def test_dragging_end_slider_after_a_plot_exists_replots_in_place(self):
+    def test_replot_is_deferred_until_the_slider_is_released(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
             self.app.logPath.set(csv_path)
@@ -85,10 +85,23 @@ class LiveReplotTests(GuiTestCase, unittest.TestCase):
             self.assertGreaterEqual(figure_count, 1)
             first_fig = self.app.paramFigures[0]
 
-            self.app._on_end_scale(self.app.paramRange, "90.0", self.app._replot_param_if_live)
+            slider = self.app.rangeFrame.range_slider
+            slider._dragging = "end"  # simulate an in-progress mouse drag
+            slider._set_value("end", 90.0)
+
+            self.assertEqual(
+                self.app.paramRange.endPrctVar.get(), "90.0",
+                "the displayed value should update live while dragging",
+            )
+            self.assertIs(
+                self.app.paramFigures[0], first_fig,
+                "must not replot mid-drag - only once the slider is released",
+            )
+
+            slider._on_mouse_release(None)
 
             self.assertEqual(len(self.app.paramFigures), figure_count)
-            self.assertIsNot(self.app.paramFigures[0], first_fig, "expected a fresh replot, not the stale chart")
+            self.assertIsNot(self.app.paramFigures[0], first_fig, "expected a fresh replot once released")
             self.assertEqual(popups, [], "a slider drag must never pop a dialog")
 
 
