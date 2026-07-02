@@ -1,12 +1,15 @@
-"""The Parameterized Plots tab: threshold-as-percentage, autofind, the
-start/end % sliders, and live-replot-on-drag."""
+"""The Parameterized Plots tab: threshold-as-percentage, autofind, and
+x-axis linking across plots (whole tab when autofind is off, per-event
+when it's on)."""
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_support import GuiTestCase, make_log_csv, make_log_csv_without_throttle, popups  # noqa: E402
+from test_support import (  # noqa: E402
+    GuiTestCase, make_log_csv, make_log_csv_two_events, make_log_csv_without_throttle,
+)
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
@@ -15,19 +18,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 from ParamPlots import ParamPlotUtil  # noqa: E402
 
 
-class ThresholdAndSliderDisplayTests(GuiTestCase, unittest.TestCase):
+class ThresholdDisplayTests(GuiTestCase, unittest.TestCase):
     def test_default_threshold_is_a_true_percentage(self):
         # Previously the comparison silently divided by 10, so "7.5" in the
         # box actually meant "75% throttle". The box now means what it says.
         self.assertEqual(self.app.threshVar.get(), "75")
-
-    def test_sliders_display_percentages_not_fractions(self):
-        self.assertEqual(self.app.paramRange.startPrctVar.get(), "10.0")
-        self.assertEqual(self.app.paramRange.endPrctVar.get(), "90.0")
-
-    def test_dragging_a_slider_updates_the_entry_as_a_percentage(self):
-        self.app.rangeFrame.range_slider._set_value("start", 37.4)
-        self.assertEqual(self.app.paramRange.startPrctVar.get(), "37.4")
 
 
 class AutofindTests(GuiTestCase, unittest.TestCase):
@@ -39,15 +34,12 @@ class AutofindTests(GuiTestCase, unittest.TestCase):
             self.app._plotParameterized()
             self.assertGreaterEqual(len(self.app.paramFigures), 1)
 
-    def test_manual_range_path_produces_one_set_of_charts(self):
+    def test_autofind_off_plots_the_whole_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
             self.app.logPath.set(csv_path)
             self.app._refresh_fields(csv_path)
             self.app.autoFindVar.set(False)
-            self.app._toggle_autofind(self.app.autoFindVar, self.app.rangeFrame, self.app._paramRangeGridKw)
-            self.app.paramRange.startPrctVar.set("0.0")
-            self.app.paramRange.endPrctVar.set("100.0")
             self.app._plotParameterized()
             self.assertGreaterEqual(len(self.app.paramFigures), 1)
 
@@ -57,7 +49,6 @@ class AutofindTests(GuiTestCase, unittest.TestCase):
             self.app._refresh_fields(csv_path)
             self.assertEqual(str(self.app.autoFindCheck.cget("state")), "disabled")
             self.assertFalse(self.app.autoFindVar.get())
-            self.assertTrue(bool(self.app.rangeFrame.winfo_manager()), "sliders should be visible instead")
 
     def test_autofind_re_enabled_once_throttle_field_is_present_again(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -68,41 +59,45 @@ class AutofindTests(GuiTestCase, unittest.TestCase):
             self.assertEqual(str(self.app.autoFindCheck.cget("state")), "normal")
 
 
-class LiveReplotTests(GuiTestCase, unittest.TestCase):
-    def test_replot_is_deferred_until_the_slider_is_released(self):
+class AxisLinkingTests(GuiTestCase, unittest.TestCase):
+    """Plots live in separate Figures/canvases (one per UserParams.plotNames
+    group), so matplotlib's built-in sharex can't link them - LogPlotterGUI
+    does it itself via _link_x_axes, wired up from _plotParameterized."""
+
+    def test_links_x_axes_across_the_whole_tab_when_autofind_is_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
             self.app.logPath.set(csv_path)
             self.app._refresh_fields(csv_path)
             self.app.autoFindVar.set(False)
-            self.app._toggle_autofind(self.app.autoFindVar, self.app.rangeFrame, self.app._paramRangeGridKw)
-            self.app.paramRange.startPrctVar.set("0.0")
-            self.app.paramRange.endPrctVar.set("50.0")
             self.app._plotParameterized()
-            # One figure per UserParams group with at least one matching
-            # field (every group but KS Noise/AVCS includes Throttle Pos).
-            figure_count = len(self.app.paramFigures)
-            self.assertGreaterEqual(figure_count, 1)
-            first_fig = self.app.paramFigures[0]
+            self.assertGreaterEqual(len(self.app.paramFigures), 2)
 
-            slider = self.app.rangeFrame.range_slider
-            slider._dragging = "end"  # simulate an in-progress mouse drag
-            slider._set_value("end", 90.0)
+            axes = [fig.axes[0] for fig in self.app.paramFigures]
+            axes[0].set_xlim(2.0, 5.0)
+            for ax in axes[1:]:
+                self.assertEqual(ax.get_xlim(), (2.0, 5.0))
 
-            self.assertEqual(
-                self.app.paramRange.endPrctVar.get(), "90.0",
-                "the displayed value should update live while dragging",
-            )
-            self.assertIs(
-                self.app.paramFigures[0], first_fig,
-                "must not replot mid-drag - only once the slider is released",
-            )
+    def test_links_x_axes_only_within_each_high_throttle_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv_two_events(Path(tmp) / "log.csv")
+            self.app.logPath.set(csv_path)
+            self.app._refresh_fields(csv_path)
+            self.app.autoFindVar.set(True)
+            self.app._plotParameterized()
 
-            slider._on_mouse_release(None)
+            event_groups = [g for g in self.app.paramAxisGroups if g]
+            self.assertEqual(len(event_groups), 2, "expected one axis group per high-throttle event")
+            group1, group2 = event_groups
+            self.assertGreaterEqual(len(group1), 2)
+            self.assertGreaterEqual(len(group2), 2)
 
-            self.assertEqual(len(self.app.paramFigures), figure_count)
-            self.assertIsNot(self.app.paramFigures[0], first_fig, "expected a fresh replot once released")
-            self.assertEqual(popups, [], "a slider drag must never pop a dialog")
+            original_xlim = group2[0].get_xlim()
+            group1[0].set_xlim(2.0, 5.0)
+            for ax in group1[1:]:
+                self.assertEqual(ax.get_xlim(), (2.0, 5.0))
+            for ax in group2:
+                self.assertEqual(ax.get_xlim(), original_xlim, "a different event's axes must not move")
 
 
 class MinMaxLabelTests(unittest.TestCase):
@@ -111,14 +106,14 @@ class MinMaxLabelTests(unittest.TestCase):
     range was actually plotted, not the whole log (so an autofind-truncated
     event shows that event's min/max, not the full file's)."""
 
-    def _plot_general_group(self, df, start_prct, end_prct):
+    def _plot_general_group(self, df, start, end):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "log.csv"
             df.to_csv(csv_path, index=False)
             util = ParamPlotUtil(str(csv_path), thresh=75)
             captured = []
             try:
-                util._plotLog(start_prct, end_prct, False, on_figure=captured.append)
+                util._makePlots(start, end, on_figure=captured.append)
                 self.assertEqual(len(captured), 1, "expected exactly one figure (the 'General' group)")
                 return {line.get_label(): line for line in captured[0].axes[0].get_lines()}
             finally:
@@ -134,7 +129,7 @@ class MinMaxLabelTests(unittest.TestCase):
         })
         # start=50, end=150 -> displayed RPM range is exactly [50, 149],
         # not the full file's [0, 199].
-        lines = self._plot_general_group(df, 0.25, 0.75)
+        lines = self._plot_general_group(df, 50, 150)
         matches = [label for label in lines if label.startswith("RPM")]
         self.assertEqual(len(matches), 1)
         self.assertIn("(50.00/149.00)", matches[0])
@@ -145,7 +140,7 @@ class MinMaxLabelTests(unittest.TestCase):
             "Time (sec)": np.round(np.arange(rows) * 0.1, 2),
             "Coolant Temp (F)": np.arange(rows, dtype=float),  # min_max_enbl=False
         })
-        lines = self._plot_general_group(df, 0.0, 1.0)
+        lines = self._plot_general_group(df, 0, rows)
         matches = [label for label in lines if label.startswith("Coolant Temp")]
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0], "Coolant Temp (F / 10)", "no min/max suffix should be appended")

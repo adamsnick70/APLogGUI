@@ -1,13 +1,12 @@
 """The Custom Plot tab: field search/select/scale, the time-axis exclusion,
-autofind sharing the same throttle field as the Parameterized tab, and
-live-replot-on-drag (including the silent-skip regression)."""
+and autofind sharing the same throttle field as the Parameterized tab."""
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_support import GuiTestCase, make_log_csv, popups  # noqa: E402
+from test_support import GuiTestCase, make_log_csv  # noqa: E402
 
 import UserParams  # noqa: E402
 
@@ -72,10 +71,9 @@ def _select_field(app, search_text):
 
 
 class CustomAutofindTests(GuiTestCase, unittest.TestCase):
-    def test_has_its_own_autofind_threshold_and_range_controls(self):
+    def test_has_its_own_autofind_threshold_control(self):
         self.assertTrue(hasattr(self.app, "customAutoFindVar"))
         self.assertTrue(hasattr(self.app, "customThreshVar"))
-        self.assertTrue(hasattr(self.app, "customRange"))
 
     def test_autofind_uses_throttle_field_even_when_not_itself_selected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,7 +88,7 @@ class CustomAutofindTests(GuiTestCase, unittest.TestCase):
             self.app._plotCustom()
             self.assertGreaterEqual(len(self.app.customFigures), 1)
 
-    def test_manual_range_path_produces_one_chart(self):
+    def test_autofind_off_produces_one_chart_for_the_whole_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
             self.app.logPath.set(csv_path)
@@ -98,81 +96,8 @@ class CustomAutofindTests(GuiTestCase, unittest.TestCase):
             _select_field(self.app, "Custom Sensor A")
 
             self.app.customAutoFindVar.set(False)
-            self.app._toggle_autofind(
-                self.app.customAutoFindVar, self.app.customRangeFrame, self.app._customRangeGridKw
-            )
-            self.app.customRange.startPrctVar.set("0.0")
-            self.app.customRange.endPrctVar.set("100.0")
             self.app._plotCustom()
             self.assertEqual(len(self.app.customFigures), 1)
-
-
-class LiveReplotTests(GuiTestCase, unittest.TestCase):
-    def test_replot_is_deferred_until_the_slider_is_released(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            csv_path = make_log_csv(Path(tmp) / "log.csv")
-            self.app.logPath.set(csv_path)
-            self.app._refresh_fields(csv_path)
-            _select_field(self.app, "Custom Sensor A")
-
-            self.app.customAutoFindVar.set(False)
-            self.app._toggle_autofind(
-                self.app.customAutoFindVar, self.app.customRangeFrame, self.app._customRangeGridKw
-            )
-            self.app.customRange.startPrctVar.set("0.0")
-            self.app.customRange.endPrctVar.set("50.0")
-            self.app._plotCustom()
-            self.assertEqual(len(self.app.customFigures), 1)
-            first_fig = self.app.customFigures[0]
-
-            slider = self.app.customRangeFrame.range_slider
-            slider._dragging = "end"  # simulate an in-progress mouse drag
-            slider._set_value("end", 90.0)
-
-            self.assertEqual(self.app.customRange.endPrctVar.get(), "90.0")
-            self.assertIs(
-                self.app.customFigures[0], first_fig,
-                "must not replot mid-drag - only once the slider is released",
-            )
-
-            slider._on_mouse_release(None)
-
-            self.assertEqual(len(self.app.customFigures), 1)
-            self.assertIsNot(self.app.customFigures[0], first_fig, "expected a fresh replot once released")
-            self.assertEqual(self.app.customRange.endPrctVar.get(), "90.0")
-
-    def test_dragging_a_slider_with_no_fields_selected_does_not_pop_a_dialog(self):
-        """Regression: clearing the selected fields after plotting, then
-        dragging a slider, used to call straight through to _plotCustom()'s
-        validation, which shows a blocking messagebox - fine for an explicit
-        Plot click, but a frozen/invisible dialog when fired from a slider
-        drag with no one there to dismiss it. The live-replot path must
-        skip silently instead."""
-        with tempfile.TemporaryDirectory() as tmp:
-            csv_path = make_log_csv(Path(tmp) / "log.csv")
-            self.app.logPath.set(csv_path)
-            self.app._refresh_fields(csv_path)
-            _select_field(self.app, "Custom Sensor A")
-
-            self.app.customAutoFindVar.set(False)
-            self.app._toggle_autofind(
-                self.app.customAutoFindVar, self.app.customRangeFrame, self.app._customRangeGridKw
-            )
-            self.app._plotCustom()
-            self.assertEqual(len(self.app.customFigures), 1)
-            stale_fig = self.app.customFigures[0]
-
-            self.app._reset_custom_fields()
-            slider = self.app.customRangeFrame.range_slider
-            slider._dragging = "start"
-            slider._set_value("start", 5.0)
-            slider._on_mouse_release(None)
-
-            self.assertEqual(popups, [], "slider drag popped a dialog instead of skipping silently")
-            self.assertIs(
-                self.app.customFigures[0], stale_fig,
-                "stale chart should be left alone, not cleared, when the replot is skipped",
-            )
 
 
 if __name__ == "__main__":

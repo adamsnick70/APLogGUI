@@ -14,7 +14,7 @@ plotFields["General"] = [("Throttle Pos (%)", 0.1, False),
                           ("Gear Position (gear)", 1, True),
                           ("Coolant Temp (F)", 0.1, True),
                           ("Oil Temp (F)", 0.1, True),
-                          ("Vehicle Speed (mph)" , 0.1 , True)]
+                          ("Req Torque (Nm)" , 0.01 , True)]
 
 plotFields["Boost"] = [("Throttle Pos (%)", 0.1, False),
                         ("Boost (psi)", 1, True),
@@ -23,13 +23,14 @@ plotFields["Boost"] = [("Throttle Pos (%)", 0.1, False),
                         ("TD Boost Error (psi)", 1, False)]
 
 plotFields["Air"] = [("Throttle Pos (%)", 0.1, False),
+                      ("Intake Temp (F)" , 0.1 , True),
                       ("Intake Temp Manifold (F)", 0.1, True),
                       ("AF Sens 1 Ratio (AFR)", 1, False),
                       ("CL Fuel Target (AFR)", 1, False),
                       ("MAF Freq (kHz)" , 1 , False)]
 
 plotFields["Fuel"] = [("Throttle Pos (%)", 0.1, False),
-                       ("AF Correction 1 (%)", 1, False),
+                       ("AF Correction 1 (%)", 1, True),
                        ("AF Learning 1 (%)", 1, False),
                        ("Fuel Pressure (psi)", 0.01, False),
                        ("Fuel Pressure Target (psi)", 0.01, False)]
@@ -43,7 +44,8 @@ plotFields["Timing"] = [("Throttle Pos (%)", 0.1, False),
 plotFields["KS Noise"] = [("KS Noise Cyl 1 (raw)", 1, False),
                            ("KS Noise Cyl 2 (raw)", 1, False),
                            ("KS Noise Cyl 3 (raw)", 1, False),
-                           ("KS Noise Cyl 4 (raw)", 1, False)]
+                           ("KS Noise Cyl 4 (raw)", 1, False),
+                           ("Throttle Pos (%)", 10, False)]
 
 plotFields["AVCS"] = [("AVCS Exh Left (°)", 1, False),
                        ("AVCS Exh Right (°)", 1, False),

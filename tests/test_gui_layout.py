@@ -23,8 +23,8 @@ class TabStructureTests(GuiTestCase, unittest.TestCase):
 
 class FieldSidebarTests(GuiTestCase, unittest.TestCase):
     def test_shows_placeholder_before_a_log_is_loaded(self):
-        children = self.app.fieldPanel.content.winfo_children()
-        self.assertEqual(len(children), 1)
+        text = self.app.fieldPanel.text.get("1.0", "end-1c")
+        self.assertEqual(text, "No log file selected.")
 
     def test_lists_every_csv_column_one_per_line(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -33,8 +33,14 @@ class FieldSidebarTests(GuiTestCase, unittest.TestCase):
 
             import pandas as pd
             expected = list(pd.read_csv(csv_path, nrows=0).columns)
-            labels = [w.cget("text") for w in self.app.fieldPanel.content.winfo_children()]
-            self.assertEqual(labels, expected)
+            lines = self.app.fieldPanel.text.get("1.0", "end-1c").splitlines()
+            self.assertEqual(lines, expected)
+
+    def test_field_text_is_read_only_but_still_selectable(self):
+        # DISABLED blocks programmatic edits (insert/delete) but Tk's Text
+        # widget still allows mouse selection and Ctrl+C copy - that's the
+        # whole point of using Text instead of a Label per field.
+        self.assertEqual(str(self.app.fieldPanel.text.cget("state")), "disabled")
 
 
 class CustomPlotLayoutTests(GuiTestCase, unittest.TestCase):
@@ -51,12 +57,34 @@ class CustomPlotLayoutTests(GuiTestCase, unittest.TestCase):
         self.app.update()
         self.custom_tab = self.app.notebook.nametowidget(self.app.notebook.tabs()[1])
 
-    def test_field_list_and_selected_fields_rows_are_unweighted(self):
-        # Only the plot output row should grow with extra window space;
-        # the controls above it stay a small, fixed size.
+    def test_setup_and_output_rows_have_correct_weights(self):
+        # Plot row (2) has 6x the weight of the setup row (0) so it
+        # dominates proportionally on every screen size. The button
+        # divider (row 1) stays thin/unweighted.
+        self.assertEqual(self.custom_tab.grid_rowconfigure(0)["weight"], 1)
         self.assertEqual(self.custom_tab.grid_rowconfigure(1)["weight"], 0)
-        self.assertEqual(self.custom_tab.grid_rowconfigure(4)["weight"], 0)
-        self.assertEqual(self.custom_tab.grid_rowconfigure(8)["weight"], 1)
+        self.assertEqual(self.custom_tab.grid_rowconfigure(2)["weight"], 6)
+
+    def test_row_minsizes_are_small_enough_to_not_dominate_on_small_screens(self):
+        # If minsize values are too large they eat all the vertical space
+        # on small displays and leave nothing for the weight ratio to act
+        # on. Both setup and plot rows are capped at 120 px maximum minsize.
+        self.assertLessEqual(self.custom_tab.grid_rowconfigure(0)["minsize"], 120)
+        self.assertLessEqual(self.custom_tab.grid_rowconfigure(2)["minsize"], 120)
+
+    def test_search_and_selected_fields_are_side_by_side(self):
+        # Both setup areas live in row 0, in separate columns, rather than
+        # stacked one above the other.
+        search_info = self.app.fieldListbox.master.master.grid_info()
+        selected_info = self.app.customSelectedScroll.master.grid_info()
+        self.assertEqual(search_info["row"], 0)
+        self.assertEqual(selected_info["row"], 0)
+        self.assertNotEqual(search_info["column"], selected_info["column"])
+
+    def test_plot_button_spans_30_percent_width_centered(self):
+        button_row = self.custom_tab.grid_slaves(row=1, column=0)[0]
+        weights = [button_row.grid_columnconfigure(c)["weight"] for c in range(3)]
+        self.assertEqual(weights, [35, 30, 35])
 
     def test_plotted_chart_fits_without_internal_scrolling(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,11 +93,6 @@ class CustomPlotLayoutTests(GuiTestCase, unittest.TestCase):
             self.app._refresh_fields(csv_path)
 
             self.app.customAutoFindVar.set(False)
-            self.app._toggle_autofind(
-                self.app.customAutoFindVar, self.app.customRangeFrame, self.app._customRangeGridKw
-            )
-            self.app.customRange.startPrctVar.set("0.0")
-            self.app.customRange.endPrctVar.set("100.0")
             self.app.customSearchVar.set("Custom Sensor A")
             self.app.update_idletasks()
             self.app.fieldListbox.selection_set(0)

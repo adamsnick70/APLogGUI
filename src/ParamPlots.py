@@ -8,7 +8,8 @@ from LogPlotUtil import LogPlotUtil, THROTTLE_FIELD, _formatLabel
 class ParamPlotUtil(LogPlotUtil):
     """Backend for the "Parameterized Plots" tab: one figure per named group
     in UserParams.plotFields, either for an autofind-detected high-throttle
-    event or for a manually chosen start/end % range of the whole log."""
+    event or for the whole log (the user zooms/pans on the charts themselves
+    instead of picking a start/end % up front)."""
 
     def _makePlots(self , start , end , on_figure = None):
         # Read In File
@@ -58,7 +59,7 @@ class ParamPlotUtil(LogPlotUtil):
             else:
                 plt.show()
 
-    def _plotLog (self , start_prct , end_prct , auto_find , on_figure = None , on_event_header = None):
+    def _plotLog (self , auto_find , on_figure = None , on_event_header = None):
         # Read In File
         fl = self._readLog()
 
@@ -78,6 +79,7 @@ class ParamPlotUtil(LogPlotUtil):
                 self._makePlots(start , end , on_figure = on_figure)
                 evt_counter = evt_counter + 1
         else:
-            start = np.int32( np.round(start_prct * len(fl)) )
-            end =  np.int32( np.round(end_prct * len(fl)) )
-            self._makePlots(start , end , on_figure = on_figure)
+            # No manual range anymore - the user zooms/pans on the plotted
+            # chart itself (see LogPlotterGUI's x-axis linking) instead of
+            # picking a start/end % up front.
+            self._makePlots(0 , len(fl) , on_figure = on_figure)

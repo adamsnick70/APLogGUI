@@ -73,7 +73,7 @@ class LogPlotUtil:
                 # Just went full throttle
                 if throttle_array[ind] > self.throttle_threshold and throttle_array[ind - 1] <= self.throttle_threshold:
                     # Avoid spikes
-                    if throttle_array[ind + 5] > self.throttle_threshold:
+                    if throttle_array[ind + 12] > self.throttle_threshold:
                         # Add one second prior to arr_out
                         if (ind - self.sps) > 0:
                             start_ind = ind - self.sps

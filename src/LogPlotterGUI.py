@@ -3,7 +3,6 @@ import re
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
-import types
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
@@ -11,6 +10,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_pdf import PdfPages
 
 import UserParams
 from LogPlotUtil import LogPlotUtil
@@ -189,126 +189,37 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.yview_moveto(0)
 
 
-class RangeSlider(ttk.Frame):
-    """A single rail with two draggable handles (start/end, 0-100) - one
-    combined control instead of two separate sliders. The Start %/End %
-    entry boxes and this slider all read/write the same StringVar/DoubleVar
-    pair, so they stay in sync regardless of which one was used.
+class SelectableFieldList(ttk.Frame):
+    """A read-only, line-per-field list the user can still mouse-select and
+    copy (Ctrl+C). Tk's Text widget keeps selection/<<Copy>> bindings active
+    even when state=DISABLED - only programmatic edits (insert/delete) are
+    blocked - so this gets "read-only" without giving up copy/paste, unlike
+    a plain Label per field."""
 
-    on_release fires once - when the mouse button comes up, or a keyboard
-    nudge's key is released - never on every drag tick. Replotting re-reads
-    the CSV and rebuilds the figure, so it should only happen once the user
-    has settled on a value, not dozens of times while they're still dragging.
-    """
-
-    HANDLE_RADIUS = 8
-    TRACK_PAD = 10
-
-    def __init__(self, parent, range_vars, on_release=None, height=28, bg=COLOR_BG):
+    def __init__(self, parent, bg=COLOR_BG_PANEL, fg=COLOR_FG):
         super().__init__(parent)
-        self.range_vars = range_vars
-        self.on_release = on_release
-        self._dragging = None
-        self._selected = "start"
+        self.text = tk.Text(
+            self, background=bg, foreground=fg, wrap="none",
+            highlightthickness=0, borderwidth=0, padx=6, pady=4,
+            selectbackground=COLOR_ACCENT, selectforeground="white",
+            insertwidth=0, cursor="arrow", state="disabled",
+        )
+        vscroll = ttk.Scrollbar(self, orient="vertical", command=self.text.yview)
+        self.text.configure(yscrollcommand=vscroll.set)
 
-        self.canvas = tk.Canvas(self, height=height, highlightthickness=0, background=bg, takefocus=1)
-        self.canvas.pack(fill="both", expand=True)
+        self.text.grid(row=0, column=0, sticky="nsew")
+        vscroll.grid(row=0, column=1, sticky="ns")
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
-        self.canvas.bind("<Configure>", lambda e: self._redraw())
-        self.canvas.bind("<Button-1>", self._on_press)
-        self.canvas.bind("<B1-Motion>", self._on_motion)
-        self.canvas.bind("<ButtonRelease-1>", self._on_mouse_release)
-        self.canvas.bind("<KeyPress-Left>", lambda e: self._move_selected(-1.0))
-        self.canvas.bind("<KeyPress-Right>", lambda e: self._move_selected(1.0))
-        self.canvas.bind("<KeyRelease-Left>", self._on_key_release)
-        self.canvas.bind("<KeyRelease-Right>", self._on_key_release)
-
-        range_vars.startScaleVar.trace_add("write", lambda *_: self._redraw())
-        range_vars.endScaleVar.trace_add("write", lambda *_: self._redraw())
-
-    def _track_bounds(self):
-        w = max(self.canvas.winfo_width(), 2 * self.TRACK_PAD + 1)
-        return self.TRACK_PAD, w - self.TRACK_PAD
-
-    def _value_to_x(self, value):
-        x0, x1 = self._track_bounds()
-        return x0 + (value / 100.0) * (x1 - x0)
-
-    def _x_to_value(self, x):
-        x0, x1 = self._track_bounds()
-        return max(0.0, min(100.0, (x - x0) / (x1 - x0) * 100.0))
-
-    def _redraw(self):
-        self.canvas.delete("all")
-        h = max(self.canvas.winfo_height(), 1)
-        mid = h / 2
-        x0, x1 = self._track_bounds()
-        sx = self._value_to_x(self.range_vars.startScaleVar.get())
-        ex = self._value_to_x(self.range_vars.endScaleVar.get())
-
-        self.canvas.create_line(x0, mid, x1, mid, fill=COLOR_BG_INPUT, width=4, capstyle="round")
-        self.canvas.create_line(sx, mid, ex, mid, fill=COLOR_ACCENT, width=4, capstyle="round")
-        for x in (sx, ex):
-            self.canvas.create_oval(
-                x - self.HANDLE_RADIUS, mid - self.HANDLE_RADIUS,
-                x + self.HANDLE_RADIUS, mid + self.HANDLE_RADIUS,
-                fill=COLOR_ACCENT_HOVER, outline=COLOR_FG,
-            )
-
-    def _closest_handle(self, x):
-        sx = self._value_to_x(self.range_vars.startScaleVar.get())
-        ex = self._value_to_x(self.range_vars.endScaleVar.get())
-        return "start" if abs(x - sx) <= abs(x - ex) else "end"
-
-    def _set_value(self, handle, value):
-        # Handles can't cross - dragging one past the other just stops it
-        # there, rather than dragging the other one along with it.
-        if handle == "start":
-            value = min(value, self.range_vars.endScaleVar.get())
-            self.range_vars.startScaleVar.set(value)
-            self.range_vars.startPrctVar.set(f"{value:.1f}")
-        else:
-            value = max(value, self.range_vars.startScaleVar.get())
-            self.range_vars.endScaleVar.set(value)
-            self.range_vars.endPrctVar.set(f"{value:.1f}")
-
-    def _on_press(self, event):
-        self.canvas.focus_set()
-        self._dragging = self._selected = self._closest_handle(event.x)
-        self._set_value(self._dragging, self._x_to_value(event.x))
-
-    def _on_motion(self, event):
-        if self._dragging:
-            self._set_value(self._dragging, self._x_to_value(event.x))
-
-    def _on_mouse_release(self, event):
-        was_dragging = self._dragging is not None
-        self._dragging = None
-        if was_dragging and self.on_release:
-            self.on_release()
-
-    def _move_selected(self, delta):
-        var = self.range_vars.startScaleVar if self._selected == "start" else self.range_vars.endScaleVar
-        self._set_value(self._selected, var.get() + delta)
-
-    def _on_key_release(self, event):
-        if self.on_release:
-            self.on_release()
+    def set_lines(self, lines):
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", "\n".join(lines))
+        self.text.configure(state="disabled")
 
 
 class LogPlotterGUI(tk.Tk):
-    @staticmethod
-    def _make_range_vars(start_pct, end_pct):
-        """A start/end % slider's paired StringVar (entry, 0-100) + DoubleVar
-        (scale, 0-100) state. The Parameterized and Custom Plot tabs each get
-        their own independent instance of this."""
-        return types.SimpleNamespace(
-            startPrctVar=tk.StringVar(value=f"{start_pct:.1f}"),
-            endPrctVar=tk.StringVar(value=f"{end_pct:.1f}"),
-            startScaleVar=tk.DoubleVar(value=start_pct),
-            endScaleVar=tk.DoubleVar(value=end_pct),
-        )
-
     def __init__(self):
         super().__init__()
         self.title("AP Log Plotter")
@@ -321,17 +232,26 @@ class LogPlotterGUI(tk.Tk):
         self.logPath = tk.StringVar()
         self.autoFindVar = tk.BooleanVar(value=True)
         self.threshVar = tk.StringVar(value="75")
-        self.paramRange = self._make_range_vars(10.0, 90.0)
 
         self.customAutoFindVar = tk.BooleanVar(value=True)
         self.customThreshVar = tk.StringVar(value="75")
-        self.customRange = self._make_range_vars(10.0, 90.0)
         self.customSearchVar = tk.StringVar()
 
         # Each tab keeps its own figure list/output area so switching tabs
         # doesn't discard the other tab's plots.
         self.paramFigures = []
         self.customFigures = []
+
+        # Mirrors paramFigures but interleaved with ("event", n) markers in
+        # display order, so the PDF export can reproduce the same High
+        # Throttle Event separators shown on screen.
+        self.paramPlotSequence = []
+
+        # Axes are grouped the same way: one group per High Throttle Event
+        # when autofind is on, or a single group for the whole tab when it's
+        # off, so zoom/pan on one plot can be mirrored across the rest of
+        # its group (see _link_x_axes).
+        self.paramAxisGroups = []
 
         self.allFields = []
         self.customFields = []  # [{"field", "scale_var", "row"}]
@@ -570,7 +490,7 @@ class LogPlotterGUI(tk.Tk):
         ttk.Label(fieldContainer, text="CSV Fields", style="Header.TLabel").grid(
             row=0, column=0, sticky="w", padx=6, pady=(4, 2)
         )
-        self.fieldPanel = ScrollableFrame(fieldContainer, bg=COLOR_BG_PANEL)
+        self.fieldPanel = SelectableFieldList(fieldContainer, bg=COLOR_BG_PANEL)
         self.fieldPanel.grid(row=1, column=0, sticky="nsew")
 
         self.notebook = ttk.Notebook(body)
@@ -588,45 +508,55 @@ class LogPlotterGUI(tk.Tk):
         )
         ttk.Entry(tab, textvariable=self.threshVar, width=6).grid(row=0, column=1, sticky="w")
 
-        self._paramRangeGridKw = dict(row=2, column=0, columnspan=4, sticky="we", pady=(8, 0))
-
         self.autoFindCheck = ttk.Checkbutton(
             tab, text="Autofind high-throttle events", variable=self.autoFindVar,
-            command=lambda: self._toggle_autofind(self.autoFindVar, self.rangeFrame, self._paramRangeGridKw)
         )
         self.autoFindCheck.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        self.rangeFrame = self._build_range_frame(tab, self.paramRange, on_change=self._replot_param_if_live)
+        # Save PDF sits immediately left of Plot, but only once there's at
+        # least one plot to export - hidden (never gridded) until then; see
+        # _update_param_pdf_button.
+        self._paramPdfButtonGridKw = dict(row=0, column=3, rowspan=2, padx=(16, 0), sticky="ns")
+        self.paramPdfButton = ttk.Button(tab, text="Save PDF", command=self._savePdfParam)
 
         # Plot button anchored top-right, spanning the controls so it's
-        # always reachable without scrolling, regardless of autofind state.
+        # always reachable without scrolling.
         ttk.Button(tab, text="Plot", command=self._plotParameterized).grid(
-            row=0, column=4, rowspan=3, padx=(16, 0), sticky="ns"
+            row=0, column=4, rowspan=2, padx=(16, 0), sticky="ns"
         )
 
         self.paramScrollArea = ScrollableFrame(tab, bg=COLOR_BG)
-        self.paramScrollArea.grid(row=3, column=0, columnspan=5, sticky="nsew", pady=(8, 0))
+        self.paramScrollArea.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(8, 0))
 
         tab.grid_columnconfigure(2, weight=1)
-        tab.grid_rowconfigure(3, weight=1)
-
-        self._toggle_autofind(self.autoFindVar, self.rangeFrame, self._paramRangeGridKw)
+        tab.grid_rowconfigure(2, weight=1)
 
     def _build_custom_tab(self, notebook):
         tab = ttk.Frame(notebook, padding=8)
         notebook.add(tab, text="Custom Plot")
 
-        ttk.Label(tab, text="Search fields:", style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        searchEntry = ttk.Entry(tab, textvariable=self.customSearchVar)
+        # Search fields (left) and Selected fields (right) sit side by side
+        # instead of stacked, each filling the tab's height down to the Plot
+        # button divider below - that's the width the two of them used to
+        # spend stacked on top of each other, now spent stretching down.
+        searchFrame = ttk.Frame(tab)
+        searchFrame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        searchFrame.grid_columnconfigure(1, weight=1)
+        searchFrame.grid_rowconfigure(1, weight=1)
+
+        ttk.Label(searchFrame, text="Search fields:", style="Header.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        searchEntry = ttk.Entry(searchFrame, textvariable=self.customSearchVar)
         searchEntry.grid(row=0, column=1, sticky="we", padx=4)
         self.customSearchVar.trace_add("write", lambda *_: self._filter_custom_listbox())
 
-        listFrame = ttk.Frame(tab)
+        listFrame = ttk.Frame(searchFrame)
         listFrame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(4, 0))
         listFrame.grid_rowconfigure(0, weight=1)
         listFrame.grid_columnconfigure(0, weight=1)
         self.fieldListbox = tk.Listbox(
-            listFrame, selectmode="extended", height=4, exportselection=False,
+            listFrame, selectmode="extended", height=1, exportselection=False,
             background=COLOR_BG_INPUT, foreground=COLOR_FG,
             selectbackground=COLOR_ACCENT, selectforeground="white",
             highlightthickness=0, borderwidth=0,
@@ -637,108 +567,65 @@ class LogPlotterGUI(tk.Tk):
         listScroll.grid(row=0, column=1, sticky="ns")
         self.fieldListbox.bind("<Double-Button-1>", lambda e: self._add_selected_custom_fields())
 
-        ttk.Button(tab, text="Add Selected →", command=self._add_selected_custom_fields).grid(
+        ttk.Button(searchFrame, text="Add Selected →", command=self._add_selected_custom_fields).grid(
             row=2, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
 
-        ttk.Label(tab, text="Selected fields:", style="Header.TLabel").grid(
-            row=3, column=0, columnspan=2, sticky="w", pady=(10, 0)
+        selectedFrame = ttk.Frame(tab)
+        selectedFrame.grid(row=0, column=1, sticky="nsew")
+        selectedFrame.grid_columnconfigure(0, weight=1)
+        selectedFrame.grid_rowconfigure(1, weight=1)
+
+        ttk.Label(selectedFrame, text="Selected fields:", style="Header.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
-        self.customSelectedScroll = ScrollableFrame(tab, bg=COLOR_BG, height=70)
-        self.customSelectedScroll.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(2, 0))
+        # height=1 gives the canvas a 1-px natural request so it doesn't
+        # inflate selectedFrame's reported size to the outer grid — the
+        # canvas still expands to fill whatever space row 1 actually gets.
+        self.customSelectedScroll = ScrollableFrame(selectedFrame, bg=COLOR_BG, height=1)
+        self.customSelectedScroll.grid(row=1, column=0, sticky="nsew", pady=(2, 0))
         self.customSelectedContainer = self.customSelectedScroll.content
 
-        ttk.Label(tab, text="Auto-Find Throttle Threshold (%): ", style="Header.TLabel").grid(
-            row=5, column=0, sticky="w", pady=(10, 0)
-        )
-        ttk.Entry(tab, textvariable=self.customThreshVar, width=6).grid(
-            row=5, column=1, sticky="w", pady=(10, 0)
-        )
-
-        self._customRangeGridKw = dict(row=7, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        # Label and entry packed side-by-side in their own sub-frame so the
+        # entry sits immediately after the label text rather than being pushed
+        # to the far right by selectedFrame's column weight.
+        threshRow = ttk.Frame(selectedFrame)
+        threshRow.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(threshRow, text="Auto-Find Throttle Threshold (%): ", style="Header.TLabel").pack(side="left")
+        ttk.Entry(threshRow, textvariable=self.customThreshVar, width=6).pack(side="left")
 
         self.customAutoFindCheck = ttk.Checkbutton(
-            tab, text="Autofind high-throttle events", variable=self.customAutoFindVar,
-            command=lambda: self._toggle_autofind(
-                self.customAutoFindVar, self.customRangeFrame, self._customRangeGridKw
-            ),
+            selectedFrame, text="Autofind high-throttle events", variable=self.customAutoFindVar,
         )
-        self.customAutoFindCheck.grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.customAutoFindCheck.grid(row=3, column=0, sticky="w", pady=(8, 0))
 
-        self.customRangeFrame = self._build_range_frame(tab, self.customRange, on_change=self._replot_custom_if_live)
-
-        # Plot button anchored top-right, spanning the whole controls
-        # column so it stays reachable regardless of how many fields are
-        # selected or how far the field list/output below has scrolled.
-        ttk.Button(tab, text="Plot", command=self._plotCustom).grid(
-            row=0, column=2, rowspan=8, padx=(16, 0), sticky="ns"
+        # Plot button now sits in its own thin row underneath both setup
+        # areas, dividing setup from the plots below, rather than spanning
+        # the full height off to the side. A 35/30/35 column split keeps the
+        # button itself at 30% of the tab's width, centered.
+        buttonRow = ttk.Frame(tab)
+        buttonRow.grid(row=1, column=0, columnspan=2, sticky="ew", pady=8)
+        buttonRow.grid_columnconfigure(0, weight=35)
+        buttonRow.grid_columnconfigure(1, weight=30)
+        buttonRow.grid_columnconfigure(2, weight=35)
+        ttk.Button(buttonRow, text="Plot", command=self._plotCustom).grid(
+            row=0, column=1, sticky="ew"
         )
 
-        self.customScrollArea = ScrollableFrame(tab, bg=COLOR_BG)
-        self.customScrollArea.grid(row=8, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
+        # height=1 for the same reason as customSelectedScroll above.
+        self.customScrollArea = ScrollableFrame(tab, bg=COLOR_BG, height=1)
+        self.customScrollArea.grid(row=2, column=0, columnspan=2, sticky="nsew")
 
-        tab.grid_columnconfigure(1, weight=1)
-        # Rows 1 (field list) and 4 (selected fields) are deliberately
-        # unweighted/fixed-height (capped via the listbox's height=4 and the
-        # ScrollableFrame's height=70 above) - each has its own internal
-        # scrollbar for when its content overflows, so there's no need to
-        # let them grow. That leaves row 8 (plot output) as the *only*
-        # weighted row, so it claims 100% of any extra vertical space and
-        # its top edge sits right below the (now compact) controls instead
-        # of needing the window to be huge before it's visible.
-        tab.grid_rowconfigure(1, minsize=90)
-        tab.grid_rowconfigure(4, minsize=80)
-        tab.grid_rowconfigure(8, weight=1, minsize=200)
-
-        self._toggle_autofind(self.customAutoFindVar, self.customRangeFrame, self._customRangeGridKw)
-
-    def _build_range_frame(self, parent, range_vars, on_change=None):
-        """Start %/End % entry boxes plus a combined two-handle range slider,
-        shared by both tabs. Caller owns showing/hiding the returned frame
-        (via _toggle_autofind) since visibility depends on that tab's own
-        autofind checkbox. on_change, if given, fires once the slider is
-        released (or a keyboard nudge completes, or an entry box is
-        committed) - never mid-drag; see RangeSlider."""
-        frame = ttk.Frame(parent)
-        ttk.Label(frame, text="Start %:", style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        startEntry = ttk.Entry(frame, textvariable=range_vars.startPrctVar, width=6)
-        startEntry.grid(row=0, column=1, padx=4)
-        startEntry.bind("<Return>", lambda e: self._sync_entry_to_scale(range_vars, "start", on_change))
-        startEntry.bind("<FocusOut>", lambda e: self._sync_entry_to_scale(range_vars, "start", on_change))
-
-        ttk.Label(frame, text="End %:", style="Header.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        endEntry = ttk.Entry(frame, textvariable=range_vars.endPrctVar, width=6)
-        endEntry.grid(row=1, column=1, padx=4, pady=(4, 0))
-        endEntry.bind("<Return>", lambda e: self._sync_entry_to_scale(range_vars, "end", on_change))
-        endEntry.bind("<FocusOut>", lambda e: self._sync_entry_to_scale(range_vars, "end", on_change))
-
-        frame.range_slider = RangeSlider(frame, range_vars, on_release=on_change)
-        frame.range_slider.grid(row=0, column=2, rowspan=2, sticky="we", padx=4)
-
-        frame.grid_columnconfigure(2, weight=1)
-        return frame
-
-    def _toggle_autofind(self, auto_find_var, range_frame, range_grid_kw):
-        if auto_find_var.get():
-            range_frame.grid_remove()
-        else:
-            range_frame.grid(**range_grid_kw)
-
-    @staticmethod
-    def _clamp_pct(value):
-        return max(0.0, min(100.0, value))
-
-    def _sync_entry_to_scale(self, range_vars, which, on_change=None):
-        var = range_vars.startPrctVar if which == "start" else range_vars.endPrctVar
-        scale_var = range_vars.startScaleVar if which == "start" else range_vars.endScaleVar
-        try:
-            v = self._clamp_pct(float(var.get()))
-        except ValueError:
-            v = scale_var.get()
-        var.set(f"{v:.1f}")
-        scale_var.set(v)
-        if on_change:
-            on_change()
+        tab.grid_columnconfigure(0, weight=1, uniform="customSetup")
+        tab.grid_columnconfigure(1, weight=1, uniform="customSetup")
+        # Setup (row 0) and plot output (row 2) share any extra vertical
+        # space, with the thin Plot button row in between left
+        # unweighted so it stays exactly as tall as its contents.
+        # minsize values are kept small so the weight ratio dominates
+        # proportionally on every screen size rather than letting large
+        # absolute floors eat all the available space on smaller displays.
+        tab.grid_rowconfigure(0, weight=1, minsize=120)
+        tab.grid_rowconfigure(2, weight=4, minsize=100)
 
     def _browse(self):
         initial_dir = self.app_config.get("last_dir")
@@ -789,21 +676,9 @@ class LogPlotterGUI(tk.Tk):
         if not throttle_present:
             self.autoFindVar.set(False)
             self.customAutoFindVar.set(False)
-        self._toggle_autofind(self.autoFindVar, self.rangeFrame, self._paramRangeGridKw)
-        self._toggle_autofind(self.customAutoFindVar, self.customRangeFrame, self._customRangeGridKw)
 
     def _populate_field_panel(self, fields):
-        for child in self.fieldPanel.content.winfo_children():
-            child.destroy()
-        if not fields:
-            ttk.Label(
-                self.fieldPanel.content, text="No log file selected.", foreground=COLOR_FG_MUTED
-            ).pack(anchor="w", padx=6, pady=4)
-            return
-        for field in fields:
-            ttk.Label(self.fieldPanel.content, text=field, anchor="w").pack(
-                fill="x", anchor="w", padx=6, pady=1
-            )
+        self.fieldPanel.set_lines(fields if fields else ["No log file selected."])
 
     def _filter_custom_listbox(self):
         # Time is always the plot's x-axis, never a selectable y-series.
@@ -853,47 +728,27 @@ class LogPlotterGUI(tk.Tk):
     # ------------------------------------------------------------------
     # Plotting
     # ------------------------------------------------------------------
-    def _replot_param_if_live(self):
-        """Dragging the start/end sliders should immediately reflect on an
-        already-plotted chart, but only once there's something on screen to
-        update and autofind isn't the one driving the time range. silent=True
-        so a slider drag can never pop a blocking error dialog (e.g. if the
-        threshold field happens to be invalid mid-edit) - it just skips the
-        update and leaves the stale chart up until the user fixes the input
-        and clicks Plot again."""
-        if not self.autoFindVar.get() and self.paramFigures:
-            self._plotParameterized(silent=True)
-
-    def _replot_custom_if_live(self):
-        if not self.customAutoFindVar.get() and self.customFigures:
-            self._plotCustom(silent=True)
-
-    def _plotParameterized(self, silent=False):
+    def _plotParameterized(self):
         path = self.logPath.get().strip()
         if not path:
-            if not silent:
-                messagebox.showerror("No log selected", "Choose a log file first.")
+            messagebox.showerror("No log selected", "Choose a log file first.")
             return
 
         try:
             thresh = float(self.threshVar.get())
         except ValueError:
-            if not silent:
-                messagebox.showerror("Invalid input", "Throttle threshold must be a number.")
+            messagebox.showerror("Invalid input", "Throttle threshold must be a number.")
             return
 
         auto_find = self.autoFindVar.get()
-        start_prct = end_prct = 0.0
-        if not auto_find:
-            try:
-                start_prct = float(self.paramRange.startPrctVar.get()) / 100.0
-                end_prct = float(self.paramRange.endPrctVar.get()) / 100.0
-            except ValueError:
-                if not silent:
-                    messagebox.showerror("Invalid input", "Start/End % must be numbers.")
-                return
 
         self._clear_plots(self.paramScrollArea, self.paramFigures)
+        self.paramPlotSequence = []
+        # A fresh single group to start - if autofind fires, the first
+        # on_event_header call replaces it with its own group; if it
+        # doesn't (manual full-range plot), every figure lands in this one
+        # group so the whole tab's x-axes end up linked together.
+        self.paramAxisGroups = [[]]
         self.status.configure(text="Plotting...")
         self.update_idletasks()
 
@@ -905,30 +760,31 @@ class LogPlotterGUI(tk.Tk):
         try:
             util = ParamPlotUtil(path, thresh, figsize=figsize)
             util._plotLog(
-                start_prct, end_prct, auto_find,
-                on_figure=lambda fig: self._embed_figure(fig, self.paramScrollArea, self.paramFigures),
-                on_event_header=lambda n: self._add_event_header(n, self.paramScrollArea),
+                auto_find,
+                on_figure=self._on_param_figure,
+                on_event_header=self._on_param_event_header,
             )
         except Exception as exc:
-            if not silent:
-                messagebox.showerror("Plotting failed", str(exc))
+            messagebox.showerror("Plotting failed", str(exc))
             self.status.configure(text="Plotting failed.")
+            self._update_param_pdf_button()
             return
 
         if not self.paramFigures:
             self.status.configure(text="No plots produced (no high-throttle events found?).")
         else:
             self.status.configure(text=f"Plotted {len(self.paramFigures)} chart(s).")
+        for group in self.paramAxisGroups:
+            self._link_x_axes(group)
+        self._update_param_pdf_button()
 
-    def _plotCustom(self, silent=False):
+    def _plotCustom(self):
         path = self.logPath.get().strip()
         if not path:
-            if not silent:
-                messagebox.showerror("No log selected", "Choose a log file first.")
+            messagebox.showerror("No log selected", "Choose a log file first.")
             return
         if not self.customFields:
-            if not silent:
-                messagebox.showerror("No fields selected", "Search and add at least one field to plot.")
+            messagebox.showerror("No fields selected", "Search and add at least one field to plot.")
             return
 
         fields_scales = []
@@ -936,28 +792,17 @@ class LogPlotterGUI(tk.Tk):
             try:
                 scale = float(f["scale_var"].get())
             except ValueError:
-                if not silent:
-                    messagebox.showerror("Invalid input", f"Scale for '{f['field']}' must be a number.")
+                messagebox.showerror("Invalid input", f"Scale for '{f['field']}' must be a number.")
                 return
             fields_scales.append((f["field"], scale))
 
         try:
             thresh = float(self.customThreshVar.get())
         except ValueError:
-            if not silent:
-                messagebox.showerror("Invalid input", "Throttle threshold must be a number.")
+            messagebox.showerror("Invalid input", "Throttle threshold must be a number.")
             return
 
         auto_find = self.customAutoFindVar.get()
-        start_prct = end_prct = 0.0
-        if not auto_find:
-            try:
-                start_prct = float(self.customRange.startPrctVar.get()) / 100.0
-                end_prct = float(self.customRange.endPrctVar.get()) / 100.0
-            except ValueError:
-                if not silent:
-                    messagebox.showerror("Invalid input", "Start/End % must be numbers.")
-                return
 
         self._clear_plots(self.customScrollArea, self.customFigures)
         self.status.configure(text="Plotting...")
@@ -970,13 +815,12 @@ class LogPlotterGUI(tk.Tk):
         try:
             util = CustomPlotUtil(path, thresh, figsize=figsize)
             util._plotCustomLog(
-                fields_scales, start_prct, end_prct, auto_find,
+                fields_scales, auto_find,
                 on_figure=lambda fig: self._embed_figure(fig, self.customScrollArea, self.customFigures),
                 on_event_header=lambda n: self._add_event_header(n, self.customScrollArea),
             )
         except Exception as exc:
-            if not silent:
-                messagebox.showerror("Plotting failed", str(exc))
+            messagebox.showerror("Plotting failed", str(exc))
             self.status.configure(text="Plotting failed.")
             return
 
@@ -990,6 +834,83 @@ class LogPlotterGUI(tk.Tk):
             plt.close(fig)
         figures.clear()
         scroll_area.clear()
+
+    def _on_param_figure(self, fig):
+        self._embed_figure(fig, self.paramScrollArea, self.paramFigures)
+        self.paramPlotSequence.append(("figure", fig))
+        self.paramAxisGroups[-1].extend(fig.axes)
+
+    def _on_param_event_header(self, evt_counter):
+        self._add_event_header(evt_counter, self.paramScrollArea)
+        self.paramPlotSequence.append(("event", evt_counter))
+        # Each event gets its own fresh group, so panning/zooming one
+        # event's charts never drags another event's charts along with it.
+        self.paramAxisGroups.append([])
+
+    def _link_x_axes(self, axes):
+        """Mirror xlim changes (zoom/pan via the toolbar) across every Axes
+        in the group. Each Axes lives in its own separate Figure/canvas (one
+        per plotted field group), so this can't be done with matplotlib's
+        built-in sharex - it only works for Axes within a single Figure."""
+        if len(axes) < 2:
+            return
+        sync_state = {"syncing": False}
+
+        def on_xlim_changed(changed_ax):
+            if sync_state["syncing"]:
+                return
+            sync_state["syncing"] = True
+            try:
+                xlim = changed_ax.get_xlim()
+                for ax in axes:
+                    if ax is not changed_ax and ax.get_xlim() != xlim:
+                        ax.set_xlim(xlim)
+                        ax.figure.canvas.draw_idle()
+            finally:
+                sync_state["syncing"] = False
+
+        for ax in axes:
+            ax.callbacks.connect("xlim_changed", on_xlim_changed)
+
+    def _update_param_pdf_button(self):
+        if self.paramFigures:
+            self.paramPdfButton.grid(**self._paramPdfButtonGridKw)
+        else:
+            self.paramPdfButton.grid_remove()
+
+    def _savePdfParam(self):
+        if not self.paramFigures:
+            return
+        initial_dir = self.app_config.get("last_dir")
+        if not initial_dir or not Path(initial_dir).is_dir():
+            initial_dir = str(Path.home())
+        path = filedialog.asksaveasfilename(
+            title="Save plots as PDF",
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            initialdir=initial_dir,
+        )
+        if not path:
+            return
+
+        try:
+            with PdfPages(path) as pdf:
+                for kind, payload in self.paramPlotSequence:
+                    if kind == "event":
+                        header_fig = plt.figure(figsize=self.paramFigures[0].get_size_inches())
+                        header_fig.text(
+                            0.5, 0.5, f"High Throttle Event {payload}",
+                            ha="center", va="center", fontsize=28,
+                        )
+                        pdf.savefig(header_fig)
+                        plt.close(header_fig)
+                    else:
+                        pdf.savefig(payload)
+        except OSError as exc:
+            messagebox.showerror("Save failed", str(exc))
+            return
+
+        self.status.configure(text=f"Saved PDF to {path}")
 
     def _add_event_header(self, evt_counter, scroll_area):
         ttk.Separator(scroll_area.content).pack(fill="x", pady=(12, 4))

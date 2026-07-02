@@ -50,6 +50,26 @@ def make_log_csv(path, throttle_low=5.0, throttle_high=85.0, rows=200, extra_fie
     return str(path)
 
 
+def make_log_csv_two_events(path, throttle_low=5.0, throttle_high=85.0, rows=400):
+    """A synthetic AP log with two distinct high-throttle events separated
+    by an 8s low-throttle gap - comfortably past the autofind algorithm's
+    5s "no second rise" window - so autofind reliably reports two separate
+    events instead of merging them into one."""
+    t = np.round(np.arange(rows) * 0.1, 2)
+    throttle = np.full(rows, throttle_low)
+    throttle[20:80] = throttle_high
+    throttle[180:260] = throttle_high
+
+    data = {
+        "Time (sec)": t,
+        "Throttle Pos (%)": throttle,
+        "RPM (RPM)": np.where(throttle > 50, 5500000.0, 1200000.0),
+        "Coolant Temp (F)": np.full(rows, 9000.0),
+    }
+    pd.DataFrame(data).to_csv(path, index=False)
+    return str(path)
+
+
 def make_log_csv_without_throttle(path, rows=50):
     """A log missing UserParams.throttleField entirely, to exercise the
     "autofind disabled when throttle field is absent" behavior."""

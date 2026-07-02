@@ -7,9 +7,10 @@ from LogPlotUtil import LogPlotUtil, _formatLabel
 class CustomPlotUtil(LogPlotUtil):
     """Backend for the "Custom Plot" tab: a single figure built from
     whichever fields/scales the user picked, either for an autofind-detected
-    high-throttle event or for a manually chosen start/end % range of the
-    whole log. Autofind still relies on UserParams.throttleField even if
-    that field isn't one of the chosen fields to plot."""
+    high-throttle event or for the whole log (the user zooms/pans on the
+    chart itself instead of picking a start/end % up front). Autofind still
+    relies on UserParams.throttleField even if that field isn't one of the
+    chosen fields to plot."""
 
     def _makeCustomPlot(self, fl, start, end, fields_scales, on_figure=None):
         time = np.array(fl['Time (sec)'])
@@ -40,7 +41,7 @@ class CustomPlotUtil(LogPlotUtil):
         else:
             plt.show()
 
-    def _plotCustomLog(self, fields_scales, start_prct, end_prct, auto_find, on_figure=None, on_event_header=None):
+    def _plotCustomLog(self, fields_scales, auto_find, on_figure=None, on_event_header=None):
         # Read In File
         fl = self._readLog()
 
@@ -57,6 +58,7 @@ class CustomPlotUtil(LogPlotUtil):
                 self._makeCustomPlot(fl, start, end, fields_scales, on_figure=on_figure)
                 evt_counter += 1
         else:
-            start = np.int32(np.round(start_prct * len(fl)))
-            end = np.int32(np.round(end_prct * len(fl)))
-            self._makeCustomPlot(fl, start, end, fields_scales, on_figure=on_figure)
+            # No manual range anymore - there's only one chart here, so the
+            # user just zooms/pans on it directly instead of picking a
+            # start/end % up front.
+            self._makeCustomPlot(fl, 0, len(fl), fields_scales, on_figure=on_figure)
