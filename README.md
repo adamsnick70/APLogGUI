@@ -7,6 +7,26 @@ to supporting VB WRX Accessport parameters
 
 ## Setup
 
+1) Clone the repository from Github into the folder you wish it to be in.
+
+An installer is available for MacOS and Windows 11 in the `installers/` directory
+of this codebase. Double click the one for your Operating System in file explorer
+to run it (on Windows, double click `install_windows.bat`, not the `.ps1` file).
+
+## Manual Setup
+
+1) Install Python
+
+Windows:
+https://www.python.org/downloads/windows/
+INSTALL AS ADMIN AND ADD TO PATH
+
+MacOS:
+Use homebrew - In terminal run "brew install python"
+
+2) Install Needed Python Packages
+
+In terminal / CLI:
 ```
 pip install -r requirements.txt
 ```
@@ -25,7 +45,10 @@ python src/LogPlotterGUI.py
 ```
 
 On Windows, a desktop shortcut ("AP Log Plotter") launches the app the same
-way via `pythonw.exe` (no console window).
+way via `pythonw.exe` (no console window). 
+1) Right click on an empty Desktop space - Select New -> Shortcut
+2) In the file browser, select to the codebase's src/LogPlotterGUI.py
+3) The shortcut is now on your Desktop
 
 ## Using the app
 
@@ -126,7 +149,7 @@ APLogger/
 │   ├── ParamPlots.py      # backend specific to the Parameterized Plots tab
 │   ├── CustomPlots.py     # backend specific to the Custom Plot tab
 │   └── UserParams.py      # reads/writes params/UserParams_<version>.txt
-└── tests/            # test suite (see below) - a sibling of src/, not nested in it
+└── tests/            # test suite (see below)
 ```
 
 ## Tests
