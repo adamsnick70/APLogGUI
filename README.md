@@ -7,7 +7,7 @@ to supporting VB WRX Accessport parameters
 
 ## Setup
 
-1) Clone the repository from Github into the folder you wish it to be in.
+1) Clone or download a .zip of the repository from Github into the folder you wish it to be in.
 
 2) An installer is available for MacOS and Windows 11 in the `installers/` directory
 of this codebase. Double click the one for your Operating System in file explorer
