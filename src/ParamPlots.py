@@ -1,25 +1,25 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-import UserParams
-from LogPlotUtil import LogPlotUtil, THROTTLE_FIELD, _formatLabel
+from LogPlotUtil import LogPlotUtil, _formatLabel
 
 
 class ParamPlotUtil(LogPlotUtil):
     """Backend for the "Parameterized Plots" tab: one figure per named group
-    in UserParams.plotFields, either for an autofind-detected high-throttle
-    event or for the whole log (the user zooms/pans on the charts themselves
-    instead of picking a start/end % up front)."""
+    in self.userParams.plotFields, either for an autofind-detected
+    high-throttle event or for the whole log (the user zooms/pans on the
+    charts themselves instead of picking a start/end % up front)."""
 
     def _makePlots(self , start , end , on_figure = None):
         # Read In File
         fl = self._readLog()
         time = np.array(fl['Time (sec)'])
         time_adj = time[start:end]
+        throttle_field = self.userParams.throttleField
 
-        for name in UserParams.plotNames:
+        for name in self.userParams.plotNames:
             series = []
-            for field, scale, min_max_enbl in UserParams.plotFields.get(name, []):
+            for field, scale, min_max_enbl in self.userParams.plotFields.get(name, []):
                 if field not in fl.columns:
                     print(f"'{field}' not found in CSV")
                     continue
@@ -29,7 +29,7 @@ class ParamPlotUtil(LogPlotUtil):
                 # truncated range actually plotted (e.g. an autofind event),
                 # not the whole log.
                 label = _formatLabel(field, scale, data=data[start:end], min_max_enbl=min_max_enbl)
-                linestyle = '--' if field == THROTTLE_FIELD else '-'
+                linestyle = '--' if field == throttle_field else '-'
                 series.append((data, label, linestyle))
 
             if not series:
@@ -41,16 +41,17 @@ class ParamPlotUtil(LogPlotUtil):
                 plt.plot(time_adj, data[start:end], label = label , linestyle = linestyle)
 
             # Spec Lines
-            if name in UserParams.plotSpecs.keys():
-                for curr_spec in UserParams.plotSpecs[name].keys():
-                    plt.plot([ time_adj[0] , time_adj[-1] ], [ UserParams.plotSpecs[name][curr_spec][0] , UserParams.plotSpecs[name][curr_spec][0] ] , 'r--' , label = f"{curr_spec} Spec")
-                    if len( UserParams.plotSpecs[name][curr_spec] ) == 2:
-                        plt.plot([ time_adj[0] , time_adj[-1] ], [ UserParams.plotSpecs[name][curr_spec][1] , UserParams.plotSpecs[name][curr_spec][1] ] , 'r--')
-                       
+            plotSpecs = self.userParams.plotSpecs
+            if name in plotSpecs.keys():
+                for curr_spec in plotSpecs[name].keys():
+                    plt.plot([ time_adj[0] , time_adj[-1] ], [ plotSpecs[name][curr_spec][0] , plotSpecs[name][curr_spec][0] ] , 'r--' , label = f"{curr_spec} Spec")
+                    if len( plotSpecs[name][curr_spec] ) == 2:
+                        plt.plot([ time_adj[0] , time_adj[-1] ], [ plotSpecs[name][curr_spec][1] , plotSpecs[name][curr_spec][1] ] , 'r--')
+
             plt.xlabel("Time")
             plt.legend()
             plt.title(name)
-            limits = UserParams.plotLimits.get(name)
+            limits = self.userParams.plotLimits.get(name)
             if limits:
                 plt.ylim(limits)
             plt.grid(linestyle = '--')

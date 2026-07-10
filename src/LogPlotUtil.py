@@ -3,11 +3,15 @@ import re
 import pandas
 import numpy as np
 
-import UserParams
-
-THROTTLE_FIELD = UserParams.throttleField
+from UserParams import UserParams, DEFAULT_VERSION
 
 _FIELD_RE = re.compile(r'^(.*)\(([^()]*)\)\s*$')
+
+
+def _default_user_params():
+    params = UserParams()
+    params.read_params(DEFAULT_VERSION)
+    return params
 
 
 def _formatLabel(field, scale, data=None, min_max_enbl=False):
@@ -37,11 +41,15 @@ class LogPlotUtil:
     Tab-specific plot rendering lives in ParamPlots.ParamPlotUtil and
     CustomPlots.CustomPlotUtil, both of which subclass this."""
 
-    def __init__(self , logPath , thresh , figsize = (20, 8)):
+    def __init__(self , logPath , thresh , figsize = (20, 8), userParams = None):
         self.logPath_ = logPath
         self.throttle_threshold = thresh
         self.sps = 13
         self.figsize = figsize
+        # Falls back to a fresh, default-version UserParams when the caller
+        # doesn't supply one (e.g. direct/test use of ParamPlotUtil rather
+        # than going through LogPlotterGUI's version-aware instance).
+        self.userParams = userParams if userParams is not None else _default_user_params()
 
     @staticmethod
     def list_fields(logPath):
@@ -72,8 +80,11 @@ class LogPlotUtil:
             if pull_bool == 0:
                 # Just went full throttle
                 if throttle_array[ind] > self.throttle_threshold and throttle_array[ind - 1] <= self.throttle_threshold:
-                    # Avoid spikes
-                    if throttle_array[ind + 12] > self.throttle_threshold:
+                    # Avoid spikes - clamped so a rise within the last 12
+                    # samples of the log checks the last available sample
+                    # instead of indexing past the end of the array.
+                    spike_check_ind = min(ind + 12, throttle_array.shape[0] - 1)
+                    if throttle_array[spike_check_ind] > self.throttle_threshold:
                         # Add one second prior to arr_out
                         if (ind - self.sps) > 0:
                             start_ind = ind - self.sps
@@ -106,13 +117,14 @@ class LogPlotUtil:
         return arr_out
 
     def _findThrottleEvents(self, fl):
-        if THROTTLE_FIELD not in fl.columns:
-            print(f"ERROR - '{THROTTLE_FIELD}' not found in CSV. Turn off autofind to view log...")
+        throttle_field = self.userParams.throttleField
+        if throttle_field not in fl.columns:
+            print(f"ERROR - '{throttle_field}' not found in CSV. Turn off autofind to view log...")
             return None
         # throttle_threshold is a 0-100 percentage (see UserParams/GUI); the
         # throttle column is already in percentage units, so it's compared
         # directly with no rescaling.
-        throttle = np.float32([fl[THROTTLE_FIELD]]).reshape((-1))
+        throttle = np.float32([fl[throttle_field]]).reshape((-1))
         event_times = self._autoFind(throttle)
         if len(event_times) == 0:
             print("ERROR - No Full Throttle events found. Turn off autofind to view log...")

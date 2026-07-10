@@ -10,15 +10,26 @@ from test_support import GuiTestCase, make_log_csv  # noqa: E402
 
 
 class TabStructureTests(GuiTestCase, unittest.TestCase):
-    def test_two_tabs_in_expected_order(self):
+    def test_tabs_in_expected_order(self):
         tabs = [self.app.notebook.tab(i, "text") for i in self.app.notebook.tabs()]
-        self.assertEqual(tabs, ["Parameterized Plots", "Custom Plot"])
+        self.assertEqual(tabs, ["Parameterized Plots", "Custom Plot", "User Parameters"])
 
     def test_sidebar_occupies_20_percent_of_body_width(self):
         sidebar_w = self.app.fieldPanel.master.winfo_width()
         notebook_w = self.app.notebook.winfo_width()
         ratio = sidebar_w / (sidebar_w + notebook_w)
         self.assertAlmostEqual(ratio, 0.20, delta=0.04, msg=f"ratio was {ratio:.3f}")
+
+    def test_sidebar_width_is_capped_on_wide_windows(self):
+        # Past a certain window width, 20% would leave the sidebar far wider
+        # than any field name needs - it's capped to roughly the width of an
+        # AccessPort version line instead of continuing to scale up.
+        self.app.geometry("3200x900")
+        self.app.update_idletasks()
+        self.app.update()
+        sidebar_w = self.app.fieldPanel.master.winfo_width()
+        self.assertLessEqual(sidebar_w, self.app._sidebar_max_width + 2)
+        self.assertLess(sidebar_w, 0.20 * 3200 - 50, "cap did not engage on a wide window")
 
 
 class FieldSidebarTests(GuiTestCase, unittest.TestCase):

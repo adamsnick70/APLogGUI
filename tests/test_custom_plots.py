@@ -8,8 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_support import GuiTestCase, make_log_csv  # noqa: E402
 
-import UserParams  # noqa: E402
-
 
 class FieldSelectionTests(GuiTestCase, unittest.TestCase):
     def setUp(self):
@@ -82,7 +80,7 @@ class CustomAutofindTests(GuiTestCase, unittest.TestCase):
             self.app._refresh_fields(csv_path)
             _select_field(self.app, "Custom Sensor A")
 
-            self.assertTrue(all(f["field"] != UserParams.throttleField for f in self.app.customFields))
+            self.assertTrue(all(f["field"] != self.app.userParams.throttleField for f in self.app.customFields))
 
             self.app.customAutoFindVar.set(True)
             self.app._plotCustom()
@@ -98,6 +96,32 @@ class CustomAutofindTests(GuiTestCase, unittest.TestCase):
             self.app.customAutoFindVar.set(False)
             self.app._plotCustom()
             self.assertEqual(len(self.app.customFigures), 1)
+
+
+class CustomPdfButtonTests(GuiTestCase, unittest.TestCase):
+    """The Custom Plot tab gained the same "Save PDF" capability the
+    Parameterized Plots tab already had - hidden until there's a plot,
+    same natural (unstretched) button width as the other tab's."""
+
+    def test_hidden_until_a_plot_exists(self):
+        self.assertFalse(self.app.customPdfButton.grid_info())
+
+    def test_shown_after_plotting_and_matches_param_tab_button_width(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            self.app.logPath.set(csv_path)
+            self.app._refresh_fields(csv_path)
+            _select_field(self.app, "Custom Sensor A")
+
+            self.app.customAutoFindVar.set(False)
+            self.app._plotCustom()
+            self.app.update_idletasks()
+
+            self.assertTrue(self.app.customPdfButton.grid_info())
+            self.assertEqual(
+                self.app.customPdfButton.winfo_reqwidth(),
+                self.app.paramPdfButton.winfo_reqwidth(),
+            )
 
 
 if __name__ == "__main__":

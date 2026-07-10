@@ -100,6 +100,19 @@ class AxisLinkingTests(GuiTestCase, unittest.TestCase):
                 self.assertEqual(ax.get_xlim(), original_xlim, "a different event's axes must not move")
 
 
+class AutofindBoundsTests(unittest.TestCase):
+    """A throttle rise within the last 12 samples of the log used to index
+    _autoFind's "avoid spikes" lookahead past the end of the array (see
+    LogPlotUtil._autoFind) instead of being clamped to the last sample."""
+
+    def test_rise_near_end_of_log_does_not_crash(self):
+        util = ParamPlotUtil("unused.csv", thresh=75)
+        throttle = np.full(200, 5.0, dtype=np.float32)
+        throttle[195:] = 85.0  # rise 5 samples before the very end
+        event_times = util._autoFind(throttle)
+        self.assertIsInstance(event_times, list)
+
+
 class MinMaxLabelTests(unittest.TestCase):
     """UserParams.plotFields' third tuple element (min_max_enbl): when set,
     a line's legend label should also show its min/max - over whatever
