@@ -9,7 +9,7 @@ to supporting VB WRX Accessport parameters
 
 1) Clone the repository from Github into the folder you wish it to be in.
 
-An installer is available for MacOS and Windows 11 in the `installers/` directory
+2) An installer is available for MacOS and Windows 11 in the `installers/` directory
 of this codebase. Double click the one for your Operating System in file explorer
 to run it (on Windows, double click `install_windows.bat`, not the `.ps1` file).
 
