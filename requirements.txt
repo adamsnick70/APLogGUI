@@ -1,6 +1,7 @@
 pandas>=2.0
 numpy>=1.24
 matplotlib>=3.7
+mplcursors>=0.5
 
 # Tkinter is part of the standard library but is packaged separately by
 # Ubuntu/Debian. On Ubuntu 20.04/22.04/24.04, install it via apt rather than

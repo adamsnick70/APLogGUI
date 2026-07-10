@@ -9,10 +9,12 @@ from tkinter import ttk, filedialog, messagebox
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+import mplcursors
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.backends.backend_pdf import PdfPages
+from PIL import Image, ImageDraw, ImageTk
 
-import UserParams
+from UserParams import UserParams, DEFAULT_VERSION
 from LogPlotUtil import LogPlotUtil
 from ParamPlots import ParamPlotUtil
 from CustomPlots import CustomPlotUtil
@@ -33,6 +35,31 @@ COLOR_ACCENT = "#0e639c"
 COLOR_ACCENT_HOVER = "#1177bb"
 COLOR_ACCENT_ACTIVE = "#005a9e"
 
+# Checkbutton indicator: a larger rounded box with a full checkmark glyph
+# (drawn with Pillow) rather than ttk "clam"'s tiny default box-with-x.
+CHECKBOX_SIZE = 22
+CHECKBOX_RADIUS = 5
+
+
+def _draw_checkbox_image(size, box_color, border_color, check_color=None):
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    inset = 1
+    draw.rounded_rectangle(
+        [inset, inset, size - 1 - inset, size - 1 - inset],
+        radius=CHECKBOX_RADIUS, fill=box_color, outline=border_color, width=2,
+    )
+    if check_color:
+        draw.line(
+            [
+                (size * 0.24, size * 0.52),
+                (size * 0.42, size * 0.72),
+                (size * 0.78, size * 0.26),
+            ],
+            fill=check_color, width=3, joint="curve",
+        )
+    return ImageTk.PhotoImage(img)
+
 # Plots were originally designed at a fixed figsize=(20, 8) (inches @ 100 dpi).
 # That's now the reference size plots are scaled from to fill the plot area's
 # current width; height is scaled at HEIGHT_FALLOFF of the width's rate of
@@ -44,14 +71,26 @@ HEIGHT_FALLOFF = 0.75
 
 # The tabgroup (Parameterized Plots / Custom Plot) occupies the right 80% of
 # the window; the field list sidebar occupies the left 20%. Expressed as a
-# 1:4 grid weight ratio so it holds exactly regardless of window size.
+# 1:4 grid weight ratio so it holds exactly regardless of window size - but
+# capped to SIDEBAR_MAX_WIDTH_REFERENCE_TEXT's rendered width (see
+# _compute_sidebar_max_width) so the sidebar doesn't keep growing into acres
+# of empty space on wide monitors.
 SIDEBAR_WEIGHT = 1
 TABS_WEIGHT = 4
+SIDEBAR_MAX_WIDTH_REFERENCE_TEXT = "AP Info:[AP3-xxx-00x vx.x.x.x-xxxxx]"
 
 # Reserve room below a Custom Plot chart for its NavigationToolbar2Tk plus
 # the embedding holder's own padding, so the height cap in _plotCustom()
 # accounts for everything that shares the plot area, not just the chart.
 TOOLBAR_RESERVE_PX = 56
+
+# Tk event.state modifier bitmasks (Windows/X11 agree on these two bits).
+_STATE_SHIFT = 0x0001
+_STATE_CONTROL = 0x0004
+
+# Each scroll "click" zooms in/out by this factor, applied on the axis/axes
+# selected by the held modifier, centered on the data point under the cursor.
+ZOOM_SCROLL_FACTOR = 0.9
 
 
 def _figsize_for_width(avail_width_px, dpi=FIGURE_DPI, avail_height_px=None):
@@ -66,6 +105,28 @@ def _figsize_for_width(avail_width_px, dpi=FIGURE_DPI, avail_height_px=None):
         # only ever deriving it from width.
         height_in = min(height_in, max(avail_height_px, 1) / dpi)
     return (width_in, height_in)
+
+
+def _scroll_units(event):
+    """Signed scroll amount, in the same "units" _on_mousewheel already
+    scaled to. Windows/macOS <MouseWheel> events carry a signed, multiple-
+    of-120 event.delta; X11 has no delta and fires a separate button press
+    per notch instead - <Button-4> for scroll up, <Button-5> for scroll
+    down - so those are normalized to +/-1 instead."""
+    delta = getattr(event, "delta", 0)
+    if delta:
+        return int(-delta / 120)
+    return -1 if event.num == 4 else 1
+
+
+def _scroll_is_zoom_in(event):
+    """True for a scroll "up"/away notch (zoom in), False for "down"/toward
+    (zoom out) - same cross-platform delta/button-number handling as
+    _scroll_units, just expressed as a direction rather than a magnitude."""
+    delta = getattr(event, "delta", 0)
+    if delta:
+        return delta > 0
+    return event.num == 4
 
 
 def _apply_matplotlib_dark_style():
@@ -171,8 +232,22 @@ class ScrollableFrame(ttk.Frame):
         # scrollbar here.
         self.content.bind("<Configure>", self._on_content_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_mousewheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+        # <MouseWheel> (with event.delta) is Windows/macOS; X11 (Linux) has no
+        # delta and instead fires plain button-press events on <Button-4>
+        # (scroll up) / <Button-5> (scroll down) - both are bound so wheel
+        # scrolling works the same on every supported platform.
+        self.canvas.bind("<Enter>", self._bind_mousewheel)
+        self.canvas.bind("<Leave>", self._unbind_mousewheel)
+
+    def _bind_mousewheel(self, event):
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, event):
+        self.canvas.unbind_all("<MouseWheel>")
+        self.canvas.unbind_all("<Button-4>")
+        self.canvas.unbind_all("<Button-5>")
 
     def _on_content_configure(self, event):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -181,7 +256,7 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.itemconfig(self.content_id, width=event.width)
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-event.delta / 120), "units")
+        self.canvas.yview_scroll(_scroll_units(event), "units")
 
     def clear(self):
         for child in self.content.winfo_children():
@@ -199,16 +274,16 @@ class SelectableFieldList(ttk.Frame):
     def __init__(self, parent, bg=COLOR_BG_PANEL, fg=COLOR_FG):
         super().__init__(parent)
         self.text = tk.Text(
-            self, background=bg, foreground=fg, wrap="none",
+            self, background=bg, foreground=fg, wrap="none", width=1,
             highlightthickness=0, borderwidth=0, padx=6, pady=4,
             selectbackground=COLOR_ACCENT, selectforeground="white",
             insertwidth=0, cursor="arrow", state="disabled",
         )
-        vscroll = ttk.Scrollbar(self, orient="vertical", command=self.text.yview)
-        self.text.configure(yscrollcommand=vscroll.set)
+        self.vscroll = ttk.Scrollbar(self, orient="vertical", command=self.text.yview)
+        self.text.configure(yscrollcommand=self.vscroll.set)
 
         self.text.grid(row=0, column=0, sticky="nsew")
-        vscroll.grid(row=0, column=1, sticky="ns")
+        self.vscroll.grid(row=0, column=1, sticky="ns")
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -224,6 +299,14 @@ class LogPlotterGUI(tk.Tk):
         super().__init__()
         self.title("AP Log Plotter")
         self.app_config = _load_config()
+        if "ap_version" not in self.app_config:
+            # The default AP version lives in config.json, not in code - seed
+            # it on first run (or for an existing config.json predating this
+            # setting) so it's genuinely stored there rather than only ever
+            # existing as DEFAULT_VERSION's in-memory fallback. From here on,
+            # only "Mark Version as Default" changes it.
+            self.app_config["ap_version"] = DEFAULT_VERSION
+            _save_config(self.app_config)
         self._size_to_plots()
         _apply_matplotlib_dark_style()
         self._apply_ttk_theme()
@@ -232,6 +315,9 @@ class LogPlotterGUI(tk.Tk):
         self.logPath = tk.StringVar()
         self.autoFindVar = tk.BooleanVar(value=True)
         self.threshVar = tk.StringVar(value="75")
+
+        self.apVersionVar = tk.StringVar()
+        self.userParams = UserParams()
 
         self.customAutoFindVar = tk.BooleanVar(value=True)
         self.customThreshVar = tk.StringVar(value="75")
@@ -242,10 +328,11 @@ class LogPlotterGUI(tk.Tk):
         self.paramFigures = []
         self.customFigures = []
 
-        # Mirrors paramFigures but interleaved with ("event", n) markers in
-        # display order, so the PDF export can reproduce the same High
-        # Throttle Event separators shown on screen.
+        # Mirrors paramFigures/customFigures but interleaved with ("event", n)
+        # markers in display order, so the PDF export can reproduce the same
+        # High Throttle Event separators shown on screen.
         self.paramPlotSequence = []
+        self.customPlotSequence = []
 
         # Axes are grouped the same way: one group per High Throttle Event
         # when autofind is on, or a single group for the whole tab when it's
@@ -274,7 +361,15 @@ class LogPlotterGUI(tk.Tk):
         self._build_status_bar()
         self._build_body()
         self._populate_field_panel([])
+        self._select_ap_version(self.app_config.get("ap_version", DEFAULT_VERSION))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Without this, Windows hands initial keyboard focus to some other
+        # focusable control built along the way (e.g. the threshold entry or
+        # AP Version combobox), which then renders as if its contents were
+        # selected/highlighted. The log path is the natural first thing to
+        # type into, so it gets focus explicitly instead.
+        self.logPathEntry.focus_set()
 
     def _on_window_configure(self, event):
         # Some X11 window managers report <Configure>'s x/y relative to the
@@ -356,6 +451,32 @@ class LogPlotterGUI(tk.Tk):
         )
         style.map("TEntry", fieldbackground=[("disabled", COLOR_BG_PANEL)])
 
+        # Without this, the "clam" theme renders a readonly TCombobox's field
+        # using its selection-highlight color (a light/white shade meant to
+        # signal "selected"), which reads as permanently selected and is
+        # nearly illegible against this dark theme - even with no focus at
+        # all. Pin every state to the same dark colors TEntry uses instead.
+        style.configure(
+            "TCombobox", fieldbackground=COLOR_BG_INPUT, background=COLOR_BG_INPUT,
+            foreground=COLOR_FG, arrowcolor=COLOR_FG_MUTED, bordercolor=COLOR_BORDER,
+            lightcolor=COLOR_BG_INPUT, darkcolor=COLOR_BG_INPUT, font=self.header_font,
+            selectbackground=COLOR_BG_INPUT, selectforeground=COLOR_FG, padding=4,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", COLOR_BG_INPUT), ("disabled", COLOR_BG_PANEL)],
+            selectbackground=[("readonly", COLOR_BG_INPUT)],
+            selectforeground=[("readonly", COLOR_FG)],
+            foreground=[("disabled", COLOR_FG_MUTED)],
+            arrowcolor=[("disabled", COLOR_FG_MUTED)],
+        )
+        # The dropdown listbox is a plain Tk Listbox under the hood, not
+        # ttk-themed - option_add is the only way to reach it.
+        self.option_add("*TCombobox*Listbox.background", COLOR_BG_INPUT)
+        self.option_add("*TCombobox*Listbox.foreground", COLOR_FG)
+        self.option_add("*TCombobox*Listbox.selectBackground", COLOR_ACCENT)
+        self.option_add("*TCombobox*Listbox.selectForeground", "white")
+
         style.configure(
             "TButton", background=COLOR_ACCENT, foreground="white",
             borderwidth=0, focuscolor=COLOR_ACCENT_HOVER, padding=6, font=self.header_font,
@@ -368,13 +489,41 @@ class LogPlotterGUI(tk.Tk):
 
         style.configure(
             "TCheckbutton", background=COLOR_BG, foreground=COLOR_FG,
-            indicatorbackground=COLOR_BG_INPUT, indicatorforeground=COLOR_FG, font=self.header_font,
+            font=self.header_font, padding=(0, 4),
         )
-        style.map(
-            "TCheckbutton",
-            background=[("active", COLOR_BG)],
-            indicatorbackground=[("selected", COLOR_ACCENT), ("active", COLOR_BG_HOVER)],
+        style.map("TCheckbutton", background=[("active", COLOR_BG)])
+
+        # Custom indicator images: a larger rounded box with a full checkmark
+        # (drawn in Pillow), replacing "clam" theme's tiny default box-with-x.
+        # Kept on self so the PhotoImage objects aren't garbage collected.
+        self._checkbox_images = {
+            "unchecked": _draw_checkbox_image(CHECKBOX_SIZE, COLOR_BG_INPUT, COLOR_BORDER),
+            "checked": _draw_checkbox_image(CHECKBOX_SIZE, COLOR_ACCENT, COLOR_ACCENT, check_color="white"),
+            "disabled_unchecked": _draw_checkbox_image(CHECKBOX_SIZE, COLOR_BG_PANEL, COLOR_BORDER),
+            "disabled_checked": _draw_checkbox_image(
+                CHECKBOX_SIZE, COLOR_BG_PANEL, COLOR_BORDER, check_color=COLOR_FG_MUTED
+            ),
+        }
+        # "Checkbutton.indicator" is a built-in element name in the "clam"
+        # theme - element_create refuses to redefine it ("Duplicate
+        # element") - so the custom indicator gets its own element name and
+        # is wired in by overriding TCheckbutton's *layout* (which can be
+        # redefined) to reference it instead.
+        style.element_create(
+            "Custom.Checkbutton.indicator", "image", self._checkbox_images["unchecked"],
+            ("disabled", "selected", self._checkbox_images["disabled_checked"]),
+            ("disabled", self._checkbox_images["disabled_unchecked"]),
+            ("selected", self._checkbox_images["checked"]),
+            width=CHECKBOX_SIZE, height=CHECKBOX_SIZE, sticky="w",
         )
+        style.layout("TCheckbutton", [
+            ("Checkbutton.padding", {"sticky": "nswe", "children": [
+                ("Custom.Checkbutton.indicator", {"side": "left", "sticky": ""}),
+                ("Checkbutton.focus", {"side": "left", "sticky": "w", "children": [
+                    ("Checkbutton.label", {"sticky": "nswe"}),
+                ]}),
+            ]}),
+        ])
 
         style.configure("TNotebook", background=COLOR_BG, borderwidth=0)
         style.configure(
@@ -466,9 +615,25 @@ class LogPlotterGUI(tk.Tk):
         entry.grid(row=0, column=1, sticky="we", padx=4)
         entry.bind("<Return>", lambda e: self._on_log_path_committed())
         entry.bind("<FocusOut>", lambda e: self._on_log_path_committed())
-        ttk.Button(bar, text="Browse...", command=self._browse).grid(row=0, column=2, padx=4)
+        self.logPathEntry = entry
+
+        ttk.Label(bar, text="AP Version:", style="Header.TLabel").grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.apVersionCombo = ttk.Combobox(
+            bar, textvariable=self.apVersionVar, state="readonly", width=14,
+            # Values are (re)read from params/ right before the dropdown
+            # opens, rather than once at startup, so a version file added or
+            # removed later shows up without restarting the app.
+            postcommand=self._refresh_ap_version_choices,
+        )
+        self.apVersionCombo.grid(row=0, column=3, sticky="w", padx=4)
+        self.apVersionCombo.bind("<<ComboboxSelected>>", lambda e: self._select_ap_version(self.apVersionVar.get()))
+
+        ttk.Button(bar, text="Browse...", command=self._browse).grid(row=0, column=4, padx=4)
 
         bar.grid_columnconfigure(1, weight=1)
+
+    def _refresh_ap_version_choices(self):
+        self.apVersionCombo["values"] = self.userParams.available_versions()
 
     def _build_status_bar(self):
         self.status = ttk.Label(self, text="Select a log file to begin.", padding=(8, 0))
@@ -496,39 +661,74 @@ class LogPlotterGUI(tk.Tk):
         self.notebook = ttk.Notebook(body)
         self.notebook.grid(row=0, column=1, sticky="nsew")
 
+        self.body = body
+        self._sidebar_max_width = self._compute_sidebar_max_width()
+        body.bind("<Configure>", self._on_body_configure)
+
         self._build_parameterized_tab(self.notebook)
         self._build_custom_tab(self.notebook)
+        self._build_user_params_tab(self.notebook)
+
+    def _compute_sidebar_max_width(self):
+        """Cap the sidebar to roughly the width of an AccessPort version line
+        like "AP Info:[AP3-SUB-006 v1.7.6.0-28785]" - a good stand-in for the
+        longest line worth showing in full without truncation/wrapping."""
+        self.update_idletasks()
+        text_font = tkfont.Font(font=self.fieldPanel.text.cget("font"))
+        text_width = text_font.measure(SIDEBAR_MAX_WIDTH_REFERENCE_TEXT)
+        text_padx = int(self.fieldPanel.text.cget("padx"))
+        scrollbar_width = self.fieldPanel.vscroll.winfo_reqwidth()
+        return text_width + 2 * text_padx + scrollbar_width
+
+    def _on_body_configure(self, event):
+        if event.widget is not self.body:
+            return
+        target = event.width * SIDEBAR_WEIGHT / (SIDEBAR_WEIGHT + TABS_WEIGHT)
+        width = int(min(target, self._sidebar_max_width))
+        # uniform is cleared here: it was only needed for the initial 1:4
+        # weight split before real dimensions were known, and would otherwise
+        # keep tying this column's size to column 1's now that they no
+        # longer share a weight-proportional relationship.
+        self.body.grid_columnconfigure(0, minsize=width, weight=0, uniform="")
+        self.body.grid_columnconfigure(1, weight=1, uniform="")
 
     def _build_parameterized_tab(self, notebook):
         tab = ttk.Frame(notebook, padding=8)
         notebook.add(tab, text="Parameterized Plots")
 
-        ttk.Label(tab, text="Auto-Find Throttle Threshold (%): ", style="Header.TLabel").grid(
+        # Auto-find controls sit in their own frame just to the left of the
+        # Save PDF / Plot button cluster, rather than pinned to the tab's
+        # left edge, with column 0 as a stretchy spacer pushing everything
+        # right so the layout still holds at any window size.
+        autoFindFrame = ttk.Frame(tab)
+        autoFindFrame.grid(row=0, column=1, rowspan=2, sticky="e", padx=(0, 16))
+
+        ttk.Label(autoFindFrame, text="Auto-Find Throttle Threshold (%): ", style="Header.TLabel").grid(
             row=0, column=0, sticky="w"
         )
-        ttk.Entry(tab, textvariable=self.threshVar, width=6).grid(row=0, column=1, sticky="w")
+        ttk.Entry(autoFindFrame, textvariable=self.threshVar, width=6).grid(row=0, column=1, sticky="w")
 
         self.autoFindCheck = ttk.Checkbutton(
-            tab, text="Autofind high-throttle events", variable=self.autoFindVar,
+            autoFindFrame, text="Autofind high-throttle events", variable=self.autoFindVar,
         )
         self.autoFindCheck.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
         # Save PDF sits immediately left of Plot, but only once there's at
         # least one plot to export - hidden (never gridded) until then; see
         # _update_param_pdf_button.
-        self._paramPdfButtonGridKw = dict(row=0, column=3, rowspan=2, padx=(16, 0), sticky="ns")
+        self._paramPdfButtonGridKw = dict(row=0, column=2, rowspan=2, padx=(0, 0), sticky="ns")
         self.paramPdfButton = ttk.Button(tab, text="Save PDF", command=self._savePdfParam)
 
         # Plot button anchored top-right, spanning the controls so it's
         # always reachable without scrolling.
         ttk.Button(tab, text="Plot", command=self._plotParameterized).grid(
-            row=0, column=4, rowspan=2, padx=(16, 0), sticky="ns"
+            row=0, column=3, rowspan=2, padx=(16, 0), sticky="ns"
         )
 
         self.paramScrollArea = ScrollableFrame(tab, bg=COLOR_BG)
-        self.paramScrollArea.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(8, 0))
+        self.paramScrollArea.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=(8, 0))
 
-        tab.grid_columnconfigure(2, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(2, weight=1)
 
     def _build_custom_tab(self, notebook):
@@ -602,13 +802,25 @@ class LogPlotterGUI(tk.Tk):
         # Plot button now sits in its own thin row underneath both setup
         # areas, dividing setup from the plots below, rather than spanning
         # the full height off to the side. A 35/30/35 column split keeps the
-        # button itself at 30% of the tab's width, centered.
+        # button cluster itself at 30% of the tab's width, centered.
         buttonRow = ttk.Frame(tab)
         buttonRow.grid(row=1, column=0, columnspan=2, sticky="ew", pady=8)
         buttonRow.grid_columnconfigure(0, weight=35)
         buttonRow.grid_columnconfigure(1, weight=30)
         buttonRow.grid_columnconfigure(2, weight=35)
-        ttk.Button(buttonRow, text="Plot", command=self._plotCustom).grid(
+
+        centerButtons = ttk.Frame(buttonRow)
+        centerButtons.grid(row=0, column=1, sticky="ew")
+        centerButtons.grid_columnconfigure(1, weight=1)
+
+        # Save PDF sits immediately left of Plot, at its natural (unstretched)
+        # width - matching the Parameterized Plots tab's PDF button - but
+        # hidden until there's at least one plot to export; see
+        # _update_custom_pdf_button.
+        self._customPdfButtonGridKw = dict(row=0, column=0, padx=(0, 16), sticky="w")
+        self.customPdfButton = ttk.Button(centerButtons, text="Save PDF", command=self._savePdfCustom)
+
+        ttk.Button(centerButtons, text="Plot", command=self._plotCustom).grid(
             row=0, column=1, sticky="ew"
         )
 
@@ -626,6 +838,108 @@ class LogPlotterGUI(tk.Tk):
         # absolute floors eat all the available space on smaller displays.
         tab.grid_rowconfigure(0, weight=1, minsize=120)
         tab.grid_rowconfigure(2, weight=4, minsize=100)
+
+    def _build_user_params_tab(self, notebook):
+        tab = ttk.Frame(notebook, padding=8)
+        notebook.add(tab, text="User Parameters")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(1, weight=1)
+
+        # Version label (left) plus the Save Preferences / Mark Version as
+        # Default buttons (right), sitting near the top of the tab close to
+        # where the AP Version dropdown lives up in the top bar - both
+        # buttons are hidden by default and only appear once relevant (see
+        # _update_save_prefs_button / _update_mark_default_button).
+        topRow = ttk.Frame(tab)
+        topRow.grid(row=0, column=0, sticky="ew")
+
+        ttk.Label(topRow, text="Editing parameters for:", style="Header.TLabel").pack(side="left")
+        self.userParamsVersionLabel = ttk.Label(topRow, text="", style="Header.TLabel")
+        self.userParamsVersionLabel.pack(side="left", padx=(4, 0))
+
+        self._markDefaultButtonPackKw = dict(side="right", padx=(8, 0))
+        self.markDefaultButton = ttk.Button(
+            topRow, text="Mark Version as Default", command=self._mark_version_default
+        )
+
+        self._savePrefsButtonPackKw = dict(side="right", padx=(8, 0))
+        self.savePrefsButton = ttk.Button(
+            topRow, text="Save Preferences", command=self._save_preferences
+        )
+
+        editorFrame = ttk.Frame(tab)
+        editorFrame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        editorFrame.grid_rowconfigure(0, weight=1)
+        editorFrame.grid_columnconfigure(0, weight=1)
+
+        # A raw-text editor over the params file rather than a bespoke
+        # widget per field: plotFields/plotLimits/plotSpecs are nested
+        # dicts of lists of tuples, and the file's own schema (Python
+        # literals - see UserParams._parse_text) is already a reasonable,
+        # user-editable representation of that shape.
+        self.userParamsText = tk.Text(
+            editorFrame, background=COLOR_BG_INPUT, foreground=COLOR_FG, wrap="none",
+            insertbackground=COLOR_FG, undo=True, font=self.header_font,
+        )
+        vscroll = ttk.Scrollbar(editorFrame, orient="vertical", command=self.userParamsText.yview)
+        hscroll = ttk.Scrollbar(editorFrame, orient="horizontal", command=self.userParamsText.xview)
+        self.userParamsText.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        self.userParamsText.grid(row=0, column=0, sticky="nsew")
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll.grid(row=1, column=0, sticky="ew")
+
+        self._userParamsBaseline = ""
+        self.userParamsText.bind("<KeyRelease>", lambda e: self._update_save_prefs_button())
+
+    def _load_user_params_editor(self):
+        self._userParamsBaseline = self.userParams.read_raw()
+        self.userParamsText.delete("1.0", "end")
+        self.userParamsText.insert("1.0", self._userParamsBaseline)
+        self.userParamsVersionLabel.configure(text=self.userParams.version)
+        self._update_save_prefs_button()
+
+    def _update_save_prefs_button(self):
+        current = self.userParamsText.get("1.0", "end-1c")
+        if current != self._userParamsBaseline:
+            self.savePrefsButton.pack(**self._savePrefsButtonPackKw)
+        else:
+            self.savePrefsButton.pack_forget()
+
+    def _update_mark_default_button(self):
+        is_default = self.userParams.version == self.app_config.get("ap_version", DEFAULT_VERSION)
+        if is_default:
+            self.markDefaultButton.pack_forget()
+        else:
+            self.markDefaultButton.pack(**self._markDefaultButtonPackKw)
+
+    def _save_preferences(self):
+        text = self.userParamsText.get("1.0", "end-1c")
+        try:
+            self.userParams.write_raw(text)
+        except (SyntaxError, ValueError, TypeError) as exc:
+            messagebox.showerror("Invalid parameters", str(exc))
+            return
+        self._userParamsBaseline = text
+        self._update_save_prefs_button()
+        self._update_autofind_availability()
+        self.status.configure(text=f"Saved preferences for {self.userParams.version}.")
+
+    def _mark_version_default(self):
+        self.app_config["ap_version"] = self.userParams.version
+        _save_config(self.app_config)
+        self._update_mark_default_button()
+        self.status.configure(text=f"{self.userParams.version} is now the default AccessPort version.")
+
+    def _select_ap_version(self, version):
+        try:
+            self.userParams.read_params(version)
+        except (OSError, SyntaxError, ValueError, TypeError) as exc:
+            messagebox.showerror("Could not load parameters", f"'{version}': {exc}")
+            return
+        self.apVersionVar.set(version)
+        self._update_autofind_availability()
+        self._load_user_params_editor()
+        self._update_mark_default_button()
 
     def _browse(self):
         initial_dir = self.app_config.get("last_dir")
@@ -667,9 +981,15 @@ class LogPlotterGUI(tk.Tk):
         self._update_autofind_availability()
 
     def _update_autofind_availability(self):
-        """Throttle-event autofind needs UserParams.throttleField; without it
-        there's nothing to detect events from, in either tab."""
-        throttle_present = UserParams.throttleField in self.allFields
+        """Throttle-event autofind needs self.userParams.throttleField;
+        without it there's nothing to detect events from, in either tab.
+        Before any log is loaded there's nothing to check yet - both boxes
+        stay at their checked-by-default state instead of being disabled,
+        since this also runs at startup (via _select_ap_version) before the
+        user has picked a log."""
+        if not self.allFields:
+            return
+        throttle_present = self.userParams.throttleField in self.allFields
         state = "normal" if throttle_present else "disabled"
         self.autoFindCheck.configure(state=state)
         self.customAutoFindCheck.configure(state=state)
@@ -758,7 +1078,7 @@ class LogPlotterGUI(tk.Tk):
         figsize = _figsize_for_width(avail_width)
 
         try:
-            util = ParamPlotUtil(path, thresh, figsize=figsize)
+            util = ParamPlotUtil(path, thresh, figsize=figsize, userParams=self.userParams)
             util._plotLog(
                 auto_find,
                 on_figure=self._on_param_figure,
@@ -805,6 +1125,7 @@ class LogPlotterGUI(tk.Tk):
         auto_find = self.customAutoFindVar.get()
 
         self._clear_plots(self.customScrollArea, self.customFigures)
+        self.customPlotSequence = []
         self.status.configure(text="Plotting...")
         self.update_idletasks()
 
@@ -813,21 +1134,23 @@ class LogPlotterGUI(tk.Tk):
         figsize = _figsize_for_width(avail_width, avail_height_px=avail_height)
 
         try:
-            util = CustomPlotUtil(path, thresh, figsize=figsize)
+            util = CustomPlotUtil(path, thresh, figsize=figsize, userParams=self.userParams)
             util._plotCustomLog(
                 fields_scales, auto_find,
-                on_figure=lambda fig: self._embed_figure(fig, self.customScrollArea, self.customFigures),
-                on_event_header=lambda n: self._add_event_header(n, self.customScrollArea),
+                on_figure=self._on_custom_figure,
+                on_event_header=self._on_custom_event_header,
             )
         except Exception as exc:
             messagebox.showerror("Plotting failed", str(exc))
             self.status.configure(text="Plotting failed.")
+            self._update_custom_pdf_button()
             return
 
         if not self.customFigures:
             self.status.configure(text="No plot produced (check selected fields).")
         else:
             self.status.configure(text=f"Plotted {len(self.customFigures)} chart(s).")
+        self._update_custom_pdf_button()
 
     def _clear_plots(self, scroll_area, figures):
         for fig in figures:
@@ -846,6 +1169,14 @@ class LogPlotterGUI(tk.Tk):
         # Each event gets its own fresh group, so panning/zooming one
         # event's charts never drags another event's charts along with it.
         self.paramAxisGroups.append([])
+
+    def _on_custom_figure(self, fig):
+        self._embed_figure(fig, self.customScrollArea, self.customFigures)
+        self.customPlotSequence.append(("figure", fig))
+
+    def _on_custom_event_header(self, evt_counter):
+        self._add_event_header(evt_counter, self.customScrollArea)
+        self.customPlotSequence.append(("event", evt_counter))
 
     def _link_x_axes(self, axes):
         """Mirror xlim changes (zoom/pan via the toolbar) across every Axes
@@ -878,8 +1209,20 @@ class LogPlotterGUI(tk.Tk):
         else:
             self.paramPdfButton.grid_remove()
 
+    def _update_custom_pdf_button(self):
+        if self.customFigures:
+            self.customPdfButton.grid(**self._customPdfButtonGridKw)
+        else:
+            self.customPdfButton.grid_remove()
+
     def _savePdfParam(self):
-        if not self.paramFigures:
+        self._save_plots_pdf(self.paramFigures, self.paramPlotSequence)
+
+    def _savePdfCustom(self):
+        self._save_plots_pdf(self.customFigures, self.customPlotSequence)
+
+    def _save_plots_pdf(self, figures, plot_sequence):
+        if not figures:
             return
         initial_dir = self.app_config.get("last_dir")
         if not initial_dir or not Path(initial_dir).is_dir():
@@ -895,9 +1238,9 @@ class LogPlotterGUI(tk.Tk):
 
         try:
             with PdfPages(path) as pdf:
-                for kind, payload in self.paramPlotSequence:
+                for kind, payload in plot_sequence:
                     if kind == "event":
-                        header_fig = plt.figure(figsize=self.paramFigures[0].get_size_inches())
+                        header_fig = plt.figure(figsize=figures[0].get_size_inches())
                         header_fig.text(
                             0.5, 0.5, f"High Throttle Event {payload}",
                             ha="center", va="center", fontsize=28,
@@ -936,11 +1279,61 @@ class LogPlotterGUI(tk.Tk):
         # ratio) whenever its widget is resized, which fill="x" would trigger
         # on every window resize.
         canvas.get_tk_widget().pack()
+        # <MouseWheel> (Windows/macOS) and <Button-4>/<Button-5> (X11/Linux,
+        # scroll up/down respectively) both land on the same handler - see
+        # _scroll_is_zoom_in for how it normalizes the two conventions.
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            canvas.get_tk_widget().bind(sequence, lambda e: self._on_plot_scroll(e, fig))
 
         toolbar = NavigationToolbar2Tk(canvas, holder, pack_toolbar=False)
         toolbar.update()
         toolbar.pack(anchor="w", fill="x")
         _recolor_classic_widget(toolbar)
+
+        self._attach_data_tips(fig)
+
+    def _attach_data_tips(self, fig):
+        """Click a plotted point to show its channel name, time, and value.
+        Kept on the figure itself (fig._data_tip_cursor) so the Cursor object
+        - which mplcursors needs to stay alive to keep responding to clicks -
+        is garbage collected exactly when the figure is (see _clear_plots)."""
+        lines = [line for ax in fig.axes for line in ax.get_lines()]
+        if not lines:
+            return
+        cursor = mplcursors.cursor(lines, hover=False)
+
+        @cursor.connect("add")
+        def _on_add(sel):
+            x, y = sel.target
+            sel.annotation.set_text(
+                f"{sel.artist.get_label()}\nTime: {x:.3f} s\nValue: {y:.3g}"
+            )
+
+        fig._data_tip_cursor = cursor
+
+    def _on_plot_scroll(self, event, fig):
+        """Ctrl+scroll zooms the x-axis, Shift+scroll zooms the y-axis, both
+        centered on the data point under the cursor. A plain scroll is left
+        untouched (no "break") so it keeps propagating to the enclosing
+        ScrollableFrame's bind_all handler and scrolls the frame instead."""
+        zoom_x = bool(event.state & _STATE_CONTROL)
+        zoom_y = bool(event.state & _STATE_SHIFT)
+        if not (zoom_x or zoom_y) or not fig.axes:
+            return
+
+        ax = fig.axes[0]
+        widget_height = event.widget.winfo_height()
+        x_data, y_data = ax.transData.inverted().transform((event.x, widget_height - event.y))
+        factor = ZOOM_SCROLL_FACTOR if _scroll_is_zoom_in(event) else 1 / ZOOM_SCROLL_FACTOR
+
+        if zoom_x:
+            x0, x1 = ax.get_xlim()
+            ax.set_xlim(x_data - (x_data - x0) * factor, x_data + (x1 - x_data) * factor)
+        if zoom_y:
+            y0, y1 = ax.get_ylim()
+            ax.set_ylim(y_data - (y_data - y0) * factor, y_data + (y1 - y_data) * factor)
+        fig.canvas.draw_idle()
+        return "break"
 
 
 if __name__ == "__main__":

@@ -1,66 +1,83 @@
-# Field used to detect high-throttle events for autofind. Different
-# log formats can name this column differently; point this at
-# whichever column holds throttle position for your log format.
-throttleField = "Throttle Pos (%)"
+import ast
+from pathlib import Path
 
-plotNames = ["General", "Boost", "Air", "Fuel", "Timing", "KS Noise", "AVCS"]
+# params/ lives at the repo root (one level up from src/), not next to this
+# script, so it stays put regardless of where the code is organized - same
+# convention as LogPlotterGUI's CONFIG_PATH.
+PARAMS_DIR = Path(__file__).resolve().parent.parent / "params"
+FILENAME_PREFIX = "UserParams_"
+FILENAME_SUFFIX = ".txt"
 
-# Each tuple is (field, scale factor, min_max_enbl). When min_max_enbl is
-# True, that line's legend label also shows its min/max over the plotted
-# range.
-plotFields = {}
-plotFields["General"] = [("Throttle Pos (%)", 0.1, False),
-                          ("RPM (RPM)", 0.001, True),
-                          ("Gear Position (gear)", 1, True),
-                          ("Coolant Temp (F)", 0.1, True),
-                          ("Oil Temp (F)", 0.1, True),
-                          ("Req Torque (Nm)" , 0.01 , True)]
+DEFAULT_VERSION = "AP3-SUB-006"
 
-plotFields["Boost"] = [("Throttle Pos (%)", 0.1, False),
-                        ("Boost (psi)", 1, True),
-                        ("Wastegate Pos Comm Final (mm)", 1, False),
-                        ("Wastegate Pos Actual (mm)", 1, False),
-                        ("TD Boost Error (psi)", 1, False)]
+_FIELD_NAMES = ("throttleField", "plotNames", "plotFields", "plotLimits", "plotSpecs")
 
-plotFields["Air"] = [("Throttle Pos (%)", 0.1, False),
-                      ("Intake Temp (F)" , 0.1 , True),
-                      ("Intake Temp Manifold (F)", 0.1, True),
-                      ("AF Sens 1 Ratio (AFR)", 1, False),
-                      ("CL Fuel Target (AFR)", 1, False),
-                      ("MAF Freq (kHz)" , 1 , False)]
 
-plotFields["Fuel"] = [("Throttle Pos (%)", 0.1, False),
-                       ("AF Correction 1 (%)", 1, True),
-                       ("AF Learning 1 (%)", 1, False),
-                       ("Fuel Pressure (psi)", 0.01, False),
-                       ("Fuel Pressure Target (psi)", 0.01, False)]
+class UserParams:
+    """Per-AccessPort-version plot configuration, read from
+    params/UserParams_<version>.txt.
 
-plotFields["Timing"] = [("Throttle Pos (%)", 0.1, False),
-                         ("Feedback Knock (°)", 1, True),
-                         ("Fine Knock Learn (°)", 1, True),
-                         ("Dyn Adv Mult (DAM)", 1, True),
-                         ("Ignition Timing (°)", 1, False)]
+    Schema: a flat set of top-level `name = <python literal>` assignments
+    (str/list/dict/tuple/number/bool - the same shapes this module used to
+    hardcode directly). Files are parsed with ast.literal_eval, never
+    exec'd/imported, so hand-editing them can't run arbitrary code.
+    """
 
-plotFields["KS Noise"] = [("KS Noise Cyl 1 (raw)", 1, False),
-                           ("KS Noise Cyl 2 (raw)", 1, False),
-                           ("KS Noise Cyl 3 (raw)", 1, False),
-                           ("KS Noise Cyl 4 (raw)", 1, False),
-                           ("Throttle Pos (%)", 10, False)]
+    def __init__(self, params_dir=None):
+        self.params_dir = Path(params_dir) if params_dir else PARAMS_DIR
+        self.version = None
+        self.throttleField = ""
+        self.plotNames = []
+        self.plotFields = {}
+        self.plotLimits = {}
+        self.plotSpecs = {}
 
-plotFields["AVCS"] = [("AVCS Exh Left (°)", 1, False),
-                       ("AVCS Exh Right (°)", 1, False),
-                       ("AVCS In Left (°)", 1, False),
-                       ("AVCS In Right (°)", 1, False)]
+    def params_path(self, version):
+        return self.params_dir / f"{FILENAME_PREFIX}{version}{FILENAME_SUFFIX}"
 
-plotLimits = {}
-plotLimits["General"]  = (0, 23)
-plotLimits["Boost"]    = (-2, 20.5)
-plotLimits["Air"]      = (0, 15)
-plotLimits["Fuel"]     = (-15, 33)
-plotLimits["Timing"]   = (-5, 10.1)
-plotLimits["KS Noise"] = (0, 3000)
-plotLimits["AVCS"]     = (-10, 31)
+    def available_versions(self):
+        """Versions supported by whatever UserParams_*.txt files currently
+        exist in params/ - read fresh each call so a file dropped in (or
+        removed) shows up without restarting the app."""
+        if not self.params_dir.is_dir():
+            return []
+        versions = [
+            path.stem[len(FILENAME_PREFIX):]
+            for path in self.params_dir.glob(f"{FILENAME_PREFIX}*{FILENAME_SUFFIX}")
+        ]
+        return sorted(versions)
 
-plotSpecs = {}
-plotSpecs["Boost"] = {}
-plotSpecs["Boost"]["TD Boost Error (psi)"] = [-1.5 , 1.5]
+    def read_params(self, version):
+        """(Re)populate every field from params/UserParams_<version>.txt."""
+        values = self._parse_text(self.params_path(version).read_text(encoding="utf-8"))
+        self.throttleField = values.get("throttleField", "")
+        self.plotNames = values.get("plotNames", [])
+        self.plotFields = values.get("plotFields", {})
+        self.plotLimits = values.get("plotLimits", {})
+        self.plotSpecs = values.get("plotSpecs", {})
+        self.version = version
+
+    def read_raw(self, version=None):
+        """Raw file text, for a user-editable view of the params."""
+        return self.params_path(version or self.version).read_text(encoding="utf-8")
+
+    def write_raw(self, text, version=None):
+        """Validate `text` parses under the same schema as read_params, then
+        write it to that version's file. Reloads this instance's fields from
+        it if it's the currently active version."""
+        version = version or self.version
+        self._parse_text(text)  # raises on invalid input before touching the file
+        self.params_path(version).write_text(text, encoding="utf-8")
+        if version == self.version:
+            self.read_params(version)
+
+    @staticmethod
+    def _parse_text(text):
+        tree = ast.parse(text)
+        values = {}
+        for node in tree.body:
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and node.targets[0].id in _FIELD_NAMES):
+                values[node.targets[0].id] = ast.literal_eval(node.value)
+        return values
