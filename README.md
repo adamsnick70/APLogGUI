@@ -13,7 +13,11 @@ to supporting VB WRX Accessport parameters
 of this codebase. Double click the one for your Operating System in file explorer
 to run it (on Windows, double click `install_windows.bat`, not the `.ps1` file).
 
+3) The app will appear in search
+
 ## Manual Setup
+
+This setup is for users that do not want to use the installer.
 
 1) Install Python
 
@@ -26,7 +30,7 @@ Use homebrew - In terminal run "brew install python"
 
 2) Install Needed Python Packages
 
-In terminal / CLI:
+In terminal / CLI at codebase folder:
 ```
 pip install -r requirements.txt
 ```
@@ -40,15 +44,18 @@ sudo apt-get install python3-tk
 
 ## Running
 
-```
-python src/LogPlotterGUI.py
-```
+If using Windows and MacOS installer, a desktop / search shortcut ("AP Log Plotter") launches the app 
+via `pythonw.exe` (no console window). 
 
-On Windows, a desktop shortcut ("AP Log Plotter") launches the app the same
-way via `pythonw.exe` (no console window). 
+If you set up manually:
 1) Right click on an empty Desktop space - Select New -> Shortcut
 2) In the file browser, select to the codebase's src/LogPlotterGUI.py
 3) The shortcut is now on your Desktop
+
+or call the app directly in CLI:
+```
+python src/LogPlotterGUI.py
+```
 
 ## Using the app
 
