@@ -47,10 +47,10 @@ plotFields = {
         ("Ignition Timing (°)", 1, False),
     ],
     "KS Noise": [
-        ("KS Noise Cyl 1 (raw)", 1, False),
-        ("KS Noise Cyl 2 (raw)", 1, False),
-        ("KS Noise Cyl 3 (raw)", 1, False),
         ("KS Noise Cyl 4 (raw)", 1, False),
+        ("KS Noise Cyl 3 (raw)", 1, False),
+        ("KS Noise Cyl 2 (raw)", 1, False),
+        ("KS Noise Cyl 1 (raw)", 1, False),
         ("Throttle Pos (%)", 10, False),
     ],
     "AVCS": [
