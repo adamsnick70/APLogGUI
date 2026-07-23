@@ -42,6 +42,7 @@ fpm -s dir -t deb -f \
     --depends libxcb-cursor0 \
     --depends libxkbcommon-x11-0 \
     --depends libgl1 \
+    --depends libegl1 \
     --depends fonts-dejavu-core \
     --package "$OUT_DIR/" \
     "$DIST_DIR/=/usr/lib/ap-log-plotter/" \

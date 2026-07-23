@@ -48,7 +48,7 @@ jobs:
       # plugin load at all.
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 fonts-dejavu-core
+          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1 fonts-dejavu-core
       - run: python tools/build_ui.py --force
       - env:
           QT_QPA_PLATFORM: offscreen
@@ -112,7 +112,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 fonts-dejavu-core ruby ruby-dev build-essential
+          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1 fonts-dejavu-core ruby ruby-dev build-essential
           sudo gem install --no-document fpm
       - run: python tools/stamp_version.py "${{ needs.version.outputs.version }}"
       - run: bash packaging/linux/build.sh

@@ -51,7 +51,7 @@ pandas/numpy. On Ubuntu (20.04/22.04/24.04), Qt also needs a few runtime
 libraries that pip alone won't pull in:
 
 ```
-sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0 libgl1 fonts-dejavu-core
+sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1 fonts-dejavu-core
 ```
 
 3) Compile the UI
