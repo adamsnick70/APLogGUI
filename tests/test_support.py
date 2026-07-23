@@ -1,13 +1,13 @@
 """Shared fixtures for the GUI test suite.
 
-messagebox.showerror/showwarning/showinfo open a real modal dialog with no
-one to dismiss it under a test runner - that would hang the process and pop
-a window on screen. They're patched once, at import time, to record into
-`popups` instead.
+QMessageBox.critical/warning/information would open a real modal dialog
+with no one to dismiss it under a test runner - that would hang the
+process and pop a window on screen. They're patched once, at import time,
+to record into `popups` instead (mirrors the Tkinter version's
+messagebox.showerror/showwarning/showinfo patching).
 """
 import sys
 from pathlib import Path
-from tkinter import messagebox
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -17,19 +17,26 @@ popups = []
 
 
 def _record_popup(kind):
-    def _show(title, message):
-        popups.append((kind, title, message))
+    def _show(*args, **kwargs):
+        # QMessageBox.critical(parent, title, text, ...) - every call site
+        # in LogPlotterGUI uses exactly (parent, title, text).
+        _parent, title, text = args[:3]
+        popups.append((kind, title, text))
     return _show
 
 
-messagebox.showerror = _record_popup("error")
-messagebox.showwarning = _record_popup("warning")
-messagebox.showinfo = _record_popup("info")
+import pytest  # noqa: E402
+from PySide6.QtWidgets import QMessageBox  # noqa: E402
 
-import numpy as np
-import pandas as pd
+QMessageBox.critical = staticmethod(_record_popup("error"))
+QMessageBox.warning = staticmethod(_record_popup("warning"))
+QMessageBox.information = staticmethod(_record_popup("info"))
 
-from LogPlotterGUI import LogPlotterGUI
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+import LogPlotterGUI as gui_module  # noqa: E402
+from LogPlotterGUI import MainWindow  # noqa: E402
 
 
 def make_log_csv(path, throttle_low=5.0, throttle_high=85.0, rows=200, extra_fields=None):
@@ -83,24 +90,31 @@ def make_log_csv_without_throttle(path, rows=50):
     return str(path)
 
 
-class GuiTestCase:
-    """unittest.TestCase mixin: a fresh, normally-sized LogPlotterGUI per
-    test, with teardown that actually lets the process exit afterward.
+def make_window(qtbot, tmp_path, monkeypatch, size=(1600, 900)):
+    """A fresh MainWindow, sized as requested. CONFIG_PATH is redirected to
+    a throwaway file so the window's closeEvent (which saves window
+    geometry) never touches the repo's real config.json - callers must
+    close() the window themselves before `monkeypatch` reverts (see the
+    `gui` fixture below), since that undoes the redirect."""
+    popups.clear()
+    monkeypatch.setattr(gui_module, "CONFIG_PATH", tmp_path / "config.json")
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(*size)
+    window.show()
+    qtbot.waitExposed(window)
+    return window
 
-    matplotlib's TkAgg backend spins up a hidden Tk root per plt.figure()
-    call; without closing them the interpreter never exits even after the
-    main window is destroyed.
-    """
 
-    def setUp(self):
-        popups.clear()
-        self.app = LogPlotterGUI()
-        self.app.state("normal")
-        self.app.geometry("1600x900")
-        self.app.update_idletasks()
-        self.app.update()
-
-    def tearDown(self):
-        import matplotlib.pyplot as plt
-        plt.close("all")
-        self.app.destroy()
+@pytest.fixture
+def gui(qtbot, tmp_path, monkeypatch):
+    """A fresh, normally-sized MainWindow per test. qtbot.addWidget()
+    registers it for automatic close/cleanup after the test, replacing the
+    Tkinter version's manual tearDown(self.app.destroy())."""
+    window = make_window(qtbot, tmp_path, monkeypatch)
+    yield window
+    # Closed here (rather than relying solely on qtbot.addWidget's automatic
+    # close) so closeEvent's config save happens while CONFIG_PATH is still
+    # patched - fixture teardown order reverts monkeypatch's patches before
+    # qtbot's own widget-closing teardown would otherwise run.
+    window.close()

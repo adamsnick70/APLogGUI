@@ -7,45 +7,68 @@ to supporting VB WRX Accessport parameters
 
 ## Setup
 
-1) Clone or download a .zip of the repository from Github into the folder you wish it to be in.
+Download the installer for your OS from the
+[GitHub Releases page](https://github.com/adamsnick70/APLogGUI/releases) and run it:
 
-2) An installer is available for MacOS and Windows 11 in the `installers/` directory
-of this codebase. Double click the one for your Operating System in file explorer
-to run it (on Windows, double click `install_windows.bat`, not the `.ps1` file).
+- **Windows**: `AP-Log-Plotter-Setup.exe` - installs for your user only, no
+  admin prompt. Find "AP Log Plotter" in the Start Menu afterward.
+- **macOS**: `AP-Log-Plotter.pkg` - installs to `/Applications`, will prompt
+  for your password. Find "AP Log Plotter" in Launchpad/Spotlight afterward.
+- **Linux (Debian/Ubuntu)**: `ap-log-plotter_<version>_amd64.deb` - install
+  with `sudo apt install ./ap-log-plotter_<version>_amd64.deb` (or open it in
+  your file manager's package installer). Find "AP Log Plotter" in your
+  application launcher afterward.
 
-3) The app will appear in search
+The app checks for a newer release on startup and offers to download and
+install it automatically. None of these installers are code-signed yet, so
+your OS will likely warn you the first time you run one (Windows
+SmartScreen / macOS Gatekeeper) - that's expected until code signing is set
+up, not a sign anything's wrong.
 
 ## Manual Setup
 
-This setup is for users that do not want to use the installer.
+This setup is for development, or for running from source instead of an
+installer.
 
-1) Install Python
+1) Install Python 3.11+
 
 Windows:
 https://www.python.org/downloads/windows/
 INSTALL AS ADMIN AND ADD TO PATH
 
-MacOS:
+macOS:
 Use homebrew - In terminal run "brew install python"
 
-2) Install Needed Python Packages
+2) Install needed Python packages
 
 In terminal / CLI at codebase folder:
 ```
 pip install -r requirements.txt
 ```
 
-On Ubuntu (20.04/22.04/24.04), Tkinter is a separate system package and
-isn't pip-installable:
+This installs PySide6/pyqtgraph (the GUI/plotting stack) along with
+pandas/numpy. On Ubuntu (20.04/22.04/24.04), Qt also needs a few runtime
+libraries that pip alone won't pull in:
 
 ```
-sudo apt-get install python3-tk
+sudo apt-get install libxcb-cursor0 libxkbcommon-x11-0 libgl1 fonts-dejavu-core
+```
+
+3) Compile the UI
+
+The first run of `src/LogPlotterGUI.py` automatically compiles
+`ui/main_window.ui` into `src/ui_main_window.py` (via `pyside6-uic`) if it's
+missing or stale, so this step is usually automatic. To do it by hand (or to
+regenerate after editing the `.ui` file in Qt Designer):
+
+```
+python tools/build_ui.py
 ```
 
 ## Running
 
-If using Windows and MacOS installer, a desktop / search shortcut ("AP Log Plotter") launches the app 
-via `pythonw.exe` (no console window). 
+If installed via the Windows/macOS/Linux installer, a shortcut/launcher
+entry ("AP Log Plotter") launches the app with no console window.
 
 If you set up manually:
 1) Right click on an empty Desktop space - Select New -> Shortcut
@@ -82,13 +105,19 @@ each with a fixed y-axis range from `plotLimits`.
 
 ### Interacting with charts
 
-- **Click a plotted point** to show a data tip with that channel's name,
-  the time (x value), and the value (y) at that point. Click elsewhere to
-  dismiss it.
+- **Click and drag** on a chart draws a box to zoom into (release to apply).
+- **Middle-click and drag** pans the chart.
+- **Click and drag an axis' ruler** (the numbers along an edge, not the plot
+  area itself) zooms just that one axis.
 - **Ctrl + scroll wheel** zooms the x-axis (time), **Shift + scroll wheel**
   zooms the y-axis, both centered on whatever point the cursor is over.
   A plain scroll doesn't touch the chart - it scrolls the page normally,
   so you can scroll past a plot with the cursor resting over it.
+- **Click a plotted point** to pin a data tip there (channel name, time, and
+  value) - multiple tips can be pinned at once, on the same or different
+  charts. Drag a pinned tip along its curve to move it, or right-click it to
+  remove it. Right-clicking empty chart area instead opens pyqtgraph's
+  built-in context menu (includes a "View All" option to reset zoom/pan).
 
 ### Custom Plot
 
@@ -150,20 +179,43 @@ APLogger/
 ├── params/           # per-AccessPort-version plot configuration
 │   ├── UserParams_AP3-SUB-006.txt
 │   └── UserParams_AP3-SUB-004.txt
-├── src/              # application code
-│   ├── LogPlotterGUI.py   # the Tkinter UI: window layout, tabs, plotting triggers
+├── ui/                    # Qt Designer source - the single source of truth for static chrome
+│   ├── main_window.ui
+│   ├── style.qss          # dark "modern webapp" stylesheet
+│   └── checkmark.svg
+├── src/                   # application code
+│   ├── LogPlotterGUI.py   # the PySide6 UI: window layout, tabs, plotting triggers
 │   ├── LogPlotUtil.py     # shared backend: reading the CSV and autofind detection
 │   ├── ParamPlots.py      # backend specific to the Parameterized Plots tab
 │   ├── CustomPlots.py     # backend specific to the Custom Plot tab
-│   └── UserParams.py      # reads/writes params/UserParams_<version>.txt
+│   ├── InteractiveViewBox.py  # MATLAB-like chart zoom/pan/datatip interaction
+│   ├── PdfExport.py       # renders plotted charts to a PDF
+│   ├── UserParams.py      # reads/writes params/UserParams_<version>.txt
+│   ├── AppPaths.py        # resource/config-file locations (source run vs. frozen install)
+│   ├── AutoUpdate.py      # GitHub Releases update check/download/relaunch
+│   ├── version.py         # build version, stamped by CI (see tools/stamp_version.py)
+│   └── ui_main_window.py  # generated from ui/main_window.ui - not committed
+├── tools/
+│   ├── build_ui.py        # compiles ui/*.ui -> src/ui_*.py
+│   ├── generate_icon.py   # (re)generates assets/icons/ from scratch
+│   └── stamp_version.py   # writes src/version.py's APP_VERSION before a packaging build
+├── assets/icons/          # app icon source (icon.ico, icon.png, AppIcon.iconset/)
+├── packaging/             # PyInstaller specs + installer build scripts, one dir per OS
+│   ├── windows/           # PyInstaller spec + Inno Setup installer.iss
+│   ├── macos/              # PyInstaller spec + pkgbuild .pkg (+ legacy-install migration scripts)
+│   └── linux/              # PyInstaller spec + fpm .deb + .desktop file
+├── .github/workflows/release.yml  # builds/checksums/publishes all 3 installers on push to master
 └── tests/            # test suite (see below)
 ```
 
 ## Tests
 
-No extra dependency needed - the suite uses the standard library's
-`unittest`:
+Uses `pytest` + `pytest-qt` (installed via `requirements.txt`):
 
 ```
-python -m unittest discover -s tests -p "test_*.py" -v
+pytest tests/
 ```
+
+Runs fine with a normal display (windows may briefly flash on screen); for
+a headless/CI environment, set `QT_QPA_PLATFORM=offscreen` first so Qt
+doesn't need a real display at all.

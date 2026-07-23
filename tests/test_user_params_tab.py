@@ -4,149 +4,124 @@ Save Preferences / Mark Version as Default buttons appear only when
 relevant."""
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_support import GuiTestCase, popups  # noqa: E402
+from test_support import gui, popups  # noqa: E402,F401
 
 import LogPlotterGUI as gui_module  # noqa: E402
-from test_user_params import SAMPLE_PARAMS_TEXT  # noqa: E402
+from test_param_plots import MinMaxLabelTests  # noqa: E402
+
+SAMPLE_PARAMS_TEXT = MinMaxLabelTests.SAMPLE_PARAMS_TEXT
 
 
-class VersionDropdownTests(GuiTestCase, unittest.TestCase):
-    def test_defaults_to_the_configured_ap_version(self):
-        expected = self.app.app_config.get("ap_version", "AP3-SUB-006")
-        self.assertEqual(self.app.apVersionVar.get(), expected)
-        self.assertEqual(self.app.userParams.version, expected)
+class TestVersionDropdown:
+    def test_defaults_to_the_configured_ap_version(self, gui):
+        expected = gui.app_config.get("ap_version", "AP3-SUB-006")
+        assert gui.apVersionCombo.currentText() == expected
+        assert gui.userParams.version == expected
 
-    def test_dropdown_lists_every_version_file_in_params_dir(self):
-        self.app._refresh_ap_version_choices()
-        values = list(self.app.apVersionCombo["values"])
-        self.assertIn("AP3-SUB-006", values)
-        self.assertIn("AP3-SUB-004", values)
+    def test_dropdown_lists_every_version_file_in_params_dir(self, gui):
+        gui._refresh_ap_version_choices()
+        values = [gui.apVersionCombo.itemText(i) for i in range(gui.apVersionCombo.count())]
+        assert "AP3-SUB-006" in values
+        assert "AP3-SUB-004" in values
 
-    def test_selecting_a_version_rereads_its_params(self):
-        self.app._select_ap_version("AP3-SUB-004")
-        self.assertEqual(self.app.userParams.version, "AP3-SUB-004")
-        self.assertEqual(self.app.apVersionVar.get(), "AP3-SUB-004")
-
-
-class UserParamsEditorTests(GuiTestCase, unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-        self.app.notebook.select(2)
-        self.app.update_idletasks()
-        self.app.update()
-
-    def test_editor_shows_the_active_version_raw_file_contents(self):
-        expected = self.app.userParams.read_raw()
-        shown = self.app.userParamsText.get("1.0", "end-1c")
-        self.assertEqual(shown, expected)
-        self.assertEqual(self.app.userParamsVersionLabel.cget("text"), self.app.userParams.version)
-
-    def test_save_prefs_button_hidden_until_text_is_edited(self):
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "")
-
-    def test_save_prefs_button_appears_after_an_edit_and_hides_when_reverted(self):
-        self.app.userParamsText.insert("end", "\n# a comment\n")
-        self.app._update_save_prefs_button()
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "pack")
-
-        self.app.userParamsText.delete("1.0", "end")
-        self.app.userParamsText.insert("1.0", self.app._userParamsBaseline)
-        self.app._update_save_prefs_button()
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "")
-
-    def test_switching_version_reloads_editor_and_clears_dirty_state(self):
-        self.app.userParamsText.insert("end", "\n# unsaved\n")
-        self.app._update_save_prefs_button()
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "pack")
-
-        self.app._select_ap_version("AP3-SUB-004")
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "")
-        self.assertEqual(
-            self.app.userParamsText.get("1.0", "end-1c"),
-            self.app.userParams.read_raw(),
-        )
+    def test_selecting_a_version_rereads_its_params(self, gui):
+        gui._select_ap_version("AP3-SUB-004")
+        assert gui.userParams.version == "AP3-SUB-004"
+        assert gui.apVersionCombo.currentText() == "AP3-SUB-004"
 
 
-class SavePreferencesTests(GuiTestCase, unittest.TestCase):
-    """write_raw actually touches disk, so this points userParams at a throwaway
-    temp directory rather than the repo's real params/ files."""
+class TestUserParamsEditor:
+    def test_editor_shows_the_active_version_raw_file_contents(self, gui):
+        gui.tabWidget.setCurrentIndex(2)
+        expected = gui.userParams.read_raw()
+        assert gui.userParamsTextEdit.toPlainText() == expected
+        assert gui.userParamsVersionLabel.text() == gui.userParams.version
 
-    def setUp(self):
-        super().setUp()
-        self.tmp = tempfile.TemporaryDirectory()
-        Path(self.tmp.name, "UserParams_TEST-VER.txt").write_text(SAMPLE_PARAMS_TEXT, encoding="utf-8")
-        self.app.userParams.params_dir = Path(self.tmp.name)
-        self.app._select_ap_version("TEST-VER")
-        self.app.notebook.select(2)
-        self.app.update_idletasks()
-        self.app.update()
+    def test_save_prefs_button_hidden_until_text_is_edited(self, gui):
+        gui.tabWidget.setCurrentIndex(2)
+        assert not gui.savePrefsButton.isVisible()
 
-    def tearDown(self):
-        self.tmp.cleanup()
-        super().tearDown()
+    def test_save_prefs_button_appears_after_an_edit_and_hides_when_reverted(self, gui):
+        gui.tabWidget.setCurrentIndex(2)
+        baseline = gui._userParamsBaseline
 
-    def test_save_preferences_writes_the_file_and_reloads_fields(self):
-        new_text = SAMPLE_PARAMS_TEXT.replace('"General"', '"Renamed"')
-        self.app.userParamsText.delete("1.0", "end")
-        self.app.userParamsText.insert("1.0", new_text)
-        self.app._update_save_prefs_button()
+        gui.userParamsTextEdit.setPlainText(baseline + "\n# a comment\n")
+        assert gui.savePrefsButton.isVisible()
 
-        self.app._save_preferences()
+        gui.userParamsTextEdit.setPlainText(baseline)
+        assert not gui.savePrefsButton.isVisible()
 
-        self.assertEqual(self.app.userParams.plotNames, ["Renamed"])
-        self.assertEqual(
-            Path(self.tmp.name, "UserParams_TEST-VER.txt").read_text(encoding="utf-8"), new_text
-        )
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "")
+    def test_switching_version_reloads_editor_and_clears_dirty_state(self, gui):
+        gui.tabWidget.setCurrentIndex(2)
+        gui.userParamsTextEdit.setPlainText(gui._userParamsBaseline + "\n# unsaved\n")
+        assert gui.savePrefsButton.isVisible()
 
-    def test_invalid_edits_are_rejected_and_left_dirty(self):
-        original = self.app.userParamsText.get("1.0", "end-1c")
-        self.app.userParamsText.delete("1.0", "end")
-        self.app.userParamsText.insert("1.0", "not ( valid")
-        self.app._update_save_prefs_button()
-
-        self.app._save_preferences()
-
-        self.assertEqual(len(popups), 1)
-        self.assertEqual(popups[0][0], "error")
-        # The file on disk is untouched, and the box still holds the user's edit.
-        self.assertNotEqual(self.app.userParamsText.get("1.0", "end-1c"), original)
-        self.assertEqual(self.app.savePrefsButton.winfo_manager(), "pack")
+        gui._select_ap_version("AP3-SUB-004")
+        assert not gui.savePrefsButton.isVisible()
+        assert gui.userParamsTextEdit.toPlainText() == gui.userParams.read_raw()
 
 
-class MarkVersionDefaultTests(GuiTestCase, unittest.TestCase):
-    """_mark_version_default writes config.json - _save_config is patched to
-    a no-op so tests never touch the repo's real config file."""
+class TestSavePreferences:
+    """write_raw actually touches disk, so this points userParams at a
+    throwaway temp directory rather than the repo's real params/ files."""
 
-    def setUp(self):
-        super().setUp()
-        self._orig_save_config = gui_module._save_config
-        gui_module._save_config = lambda cfg: None
-        self.app.notebook.select(2)
-        self.app.update_idletasks()
-        self.app.update()
+    def test_save_preferences_writes_the_file_and_reloads_fields(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "UserParams_TEST-VER.txt").write_text(SAMPLE_PARAMS_TEXT, encoding="utf-8")
+            gui.userParams.params_dir = Path(tmp)
+            gui._select_ap_version("TEST-VER")
+            gui.tabWidget.setCurrentIndex(2)
 
-    def tearDown(self):
-        gui_module._save_config = self._orig_save_config
-        super().tearDown()
+            new_text = SAMPLE_PARAMS_TEXT.replace('"General"', '"Renamed"')
+            gui.userParamsTextEdit.setPlainText(new_text)
 
-    def test_hidden_for_the_current_default_version(self):
-        self.assertEqual(self.app.markDefaultButton.winfo_manager(), "")
+            gui._save_preferences()
 
-    def test_shown_for_a_non_default_version(self):
-        self.app._select_ap_version("AP3-SUB-004")
-        self.assertEqual(self.app.markDefaultButton.winfo_manager(), "pack")
+            assert gui.userParams.plotNames == ["Renamed"]
+            assert Path(tmp, "UserParams_TEST-VER.txt").read_text(encoding="utf-8") == new_text
+            assert not gui.savePrefsButton.isVisible()
 
-    def test_marking_default_updates_config_and_hides_the_button(self):
-        self.app._select_ap_version("AP3-SUB-004")
-        self.app._mark_version_default()
-        self.assertEqual(self.app.app_config["ap_version"], "AP3-SUB-004")
-        self.assertEqual(self.app.markDefaultButton.winfo_manager(), "")
+    def test_invalid_edits_are_rejected_and_left_dirty(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "UserParams_TEST-VER.txt").write_text(SAMPLE_PARAMS_TEXT, encoding="utf-8")
+            gui.userParams.params_dir = Path(tmp)
+            gui._select_ap_version("TEST-VER")
+            gui.tabWidget.setCurrentIndex(2)
+
+            original = gui.userParamsTextEdit.toPlainText()
+            gui.userParamsTextEdit.setPlainText("not ( valid")
+
+            gui._save_preferences()
+
+            assert len(popups) == 1
+            assert popups[0][0] == "error"
+            # The file on disk is untouched, and the box still holds the user's edit.
+            assert gui.userParamsTextEdit.toPlainText() != original
+            assert gui.savePrefsButton.isVisible()
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestMarkVersionDefault:
+    """_mark_version_default writes config.json - _save_config is patched
+    to a no-op so tests never touch the repo's real config file."""
+
+    def test_hidden_for_the_current_default_version(self, gui, monkeypatch):
+        monkeypatch.setattr(gui_module, "_save_config", lambda cfg: None)
+        gui.tabWidget.setCurrentIndex(2)
+        assert not gui.markDefaultButton.isVisible()
+
+    def test_shown_for_a_non_default_version(self, gui, monkeypatch):
+        monkeypatch.setattr(gui_module, "_save_config", lambda cfg: None)
+        gui.tabWidget.setCurrentIndex(2)
+        gui._select_ap_version("AP3-SUB-004")
+        assert gui.markDefaultButton.isVisible()
+
+    def test_marking_default_updates_config_and_hides_the_button(self, gui, monkeypatch):
+        monkeypatch.setattr(gui_module, "_save_config", lambda cfg: None)
+        gui.tabWidget.setCurrentIndex(2)
+        gui._select_ap_version("AP3-SUB-004")
+        gui._mark_version_default()
+        assert gui.app_config["ap_version"] == "AP3-SUB-004"
+        assert not gui.markDefaultButton.isVisible()

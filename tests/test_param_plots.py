@@ -8,96 +8,99 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_support import (  # noqa: E402
-    GuiTestCase, make_log_csv, make_log_csv_two_events, make_log_csv_without_throttle,
+    gui, make_log_csv, make_log_csv_two_events, make_log_csv_without_throttle,
 )
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
 
+from UserParams import UserParams  # noqa: E402
 from ParamPlots import ParamPlotUtil  # noqa: E402
 
 
-class ThresholdDisplayTests(GuiTestCase, unittest.TestCase):
-    def test_default_threshold_is_a_true_percentage(self):
+class TestThresholdDisplay:
+    def test_default_threshold_is_a_true_percentage(self, gui):
         # Previously the comparison silently divided by 10, so "7.5" in the
         # box actually meant "75% throttle". The box now means what it says.
-        self.assertEqual(self.app.threshVar.get(), "75")
+        assert gui.paramAutoFindThreshEdit.text() == "75"
 
 
-class AutofindTests(GuiTestCase, unittest.TestCase):
-    def test_autofind_locates_the_high_throttle_event(self):
+class TestAutofind:
+    def test_autofind_locates_the_high_throttle_event(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
-            self.app.logPath.set(csv_path)
-            self.app._refresh_fields(csv_path)
-            self.app._plotParameterized()
-            self.assertGreaterEqual(len(self.app.paramFigures), 1)
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui._plot_parameterized()
+            assert len(gui.paramFigures) >= 1
 
-    def test_autofind_off_plots_the_whole_log(self):
+    def test_autofind_off_plots_the_whole_log(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
-            self.app.logPath.set(csv_path)
-            self.app._refresh_fields(csv_path)
-            self.app.autoFindVar.set(False)
-            self.app._plotParameterized()
-            self.assertGreaterEqual(len(self.app.paramFigures), 1)
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.paramAutoFindCheck.setChecked(False)
+            gui._plot_parameterized()
+            assert len(gui.paramFigures) >= 1
 
-    def test_autofind_disabled_when_throttle_field_missing(self):
+    def test_autofind_disabled_when_throttle_field_missing(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv_without_throttle(Path(tmp) / "log.csv")
-            self.app._refresh_fields(csv_path)
-            self.assertEqual(str(self.app.autoFindCheck.cget("state")), "disabled")
-            self.assertFalse(self.app.autoFindVar.get())
+            gui._refresh_fields(csv_path)
+            assert not gui.paramAutoFindCheck.isEnabled()
+            assert not gui.paramAutoFindCheck.isChecked()
 
-    def test_autofind_re_enabled_once_throttle_field_is_present_again(self):
+    def test_autofind_re_enabled_once_throttle_field_is_present_again(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
             no_throttle = make_log_csv_without_throttle(Path(tmp) / "no_throttle.csv")
             with_throttle = make_log_csv(Path(tmp) / "log.csv")
-            self.app._refresh_fields(no_throttle)
-            self.app._refresh_fields(with_throttle)
-            self.assertEqual(str(self.app.autoFindCheck.cget("state")), "normal")
+            gui._refresh_fields(no_throttle)
+            gui._refresh_fields(with_throttle)
+            assert gui.paramAutoFindCheck.isEnabled()
 
 
-class AxisLinkingTests(GuiTestCase, unittest.TestCase):
-    """Plots live in separate Figures/canvases (one per UserParams.plotNames
-    group), so matplotlib's built-in sharex can't link them - LogPlotterGUI
-    does it itself via _link_x_axes, wired up from _plotParameterized."""
+class TestAxisLinking:
+    """Every plot lives in its own separate pg.PlotWidget (one per
+    UserParams.plotNames group), so pyqtgraph's setXLink is used to mirror
+    pan/zoom across them - see LogPlotterGUI._link_x_axes, wired up from
+    _plot_parameterized."""
 
-    def test_links_x_axes_across_the_whole_tab_when_autofind_is_off(self):
+    def test_links_x_axes_across_the_whole_tab_when_autofind_is_off(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv(Path(tmp) / "log.csv")
-            self.app.logPath.set(csv_path)
-            self.app._refresh_fields(csv_path)
-            self.app.autoFindVar.set(False)
-            self.app._plotParameterized()
-            self.assertGreaterEqual(len(self.app.paramFigures), 2)
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.paramAutoFindCheck.setChecked(False)
+            gui._plot_parameterized()
+            assert len(gui.paramFigures) >= 2
 
-            axes = [fig.axes[0] for fig in self.app.paramFigures]
-            axes[0].set_xlim(2.0, 5.0)
-            for ax in axes[1:]:
-                self.assertEqual(ax.get_xlim(), (2.0, 5.0))
+            view_boxes = [fig.getPlotItem().getViewBox() for fig in gui.paramFigures]
+            view_boxes[0].setXRange(2.0, 5.0, padding=0)
+            for vb in view_boxes[1:]:
+                assert tuple(round(v, 6) for v in vb.viewRange()[0]) == (2.0, 5.0)
 
-    def test_links_x_axes_only_within_each_high_throttle_event(self):
+    def test_links_x_axes_only_within_each_high_throttle_event(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv_two_events(Path(tmp) / "log.csv")
-            self.app.logPath.set(csv_path)
-            self.app._refresh_fields(csv_path)
-            self.app.autoFindVar.set(True)
-            self.app._plotParameterized()
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.paramAutoFindCheck.setChecked(True)
+            gui._plot_parameterized()
 
-            event_groups = [g for g in self.app.paramAxisGroups if g]
-            self.assertEqual(len(event_groups), 2, "expected one axis group per high-throttle event")
+            event_groups = [g for g in gui.paramAxisGroups if g]
+            assert len(event_groups) == 2, "expected one axis group per high-throttle event"
             group1, group2 = event_groups
-            self.assertGreaterEqual(len(group1), 2)
-            self.assertGreaterEqual(len(group2), 2)
+            assert len(group1) >= 2
+            assert len(group2) >= 2
 
-            original_xlim = group2[0].get_xlim()
-            group1[0].set_xlim(2.0, 5.0)
-            for ax in group1[1:]:
-                self.assertEqual(ax.get_xlim(), (2.0, 5.0))
-            for ax in group2:
-                self.assertEqual(ax.get_xlim(), original_xlim, "a different event's axes must not move")
+            vb1 = [w.getPlotItem().getViewBox() for w in group1]
+            vb2 = [w.getPlotItem().getViewBox() for w in group2]
+            original_xlim = vb2[0].viewRange()[0]
+            vb1[0].setXRange(2.0, 5.0, padding=0)
+            for vb in vb1[1:]:
+                assert tuple(round(v, 6) for v in vb.viewRange()[0]) == (2.0, 5.0)
+            for vb in vb2:
+                assert vb.viewRange()[0] == original_xlim, "a different event's axes must not move"
 
 
 class AutofindBoundsTests(unittest.TestCase):
@@ -117,21 +120,45 @@ class MinMaxLabelTests(unittest.TestCase):
     """UserParams.plotFields' third tuple element (min_max_enbl): when set,
     a line's legend label should also show its min/max - over whatever
     range was actually plotted, not the whole log (so an autofind-truncated
-    event shows that event's min/max, not the full file's)."""
+    event shows that event's min/max, not the full file's).
+
+    Uses an isolated, temp-dir UserParams (rather than the shipped
+    params/UserParams_*.txt) so this test's expectations don't silently
+    drift if those files' min_max_enbl flags ever change.
+    """
+
+    SAMPLE_PARAMS_TEXT = '''\
+throttleField = "Throttle Pos (%)"
+plotNames = ["General"]
+plotFields = {
+    "General": [
+        ("RPM (RPM)", 0.001, True),
+        ("Coolant Temp (F)", 0.1, False),
+    ],
+}
+plotLimits = {}
+plotSpecs = {}
+'''
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        Path(self.tmp.name, "UserParams_TEST-VER.txt").write_text(self.SAMPLE_PARAMS_TEXT, encoding="utf-8")
+        self.userParams = UserParams(params_dir=self.tmp.name)
+        self.userParams.read_params("TEST-VER")
+
+    def tearDown(self):
+        self.tmp.cleanup()
 
     def _plot_general_group(self, df, start, end):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "log.csv"
             df.to_csv(csv_path, index=False)
-            util = ParamPlotUtil(str(csv_path), thresh=75)
+            util = ParamPlotUtil(str(csv_path), thresh=75, userParams=self.userParams)
             captured = []
-            try:
-                util._makePlots(start, end, on_figure=captured.append)
-                self.assertEqual(len(captured), 1, "expected exactly one figure (the 'General' group)")
-                return {line.get_label(): line for line in captured[0].axes[0].get_lines()}
-            finally:
-                for fig in captured:
-                    plt.close(fig)
+            util._makePlots(start, end, on_figure=captured.append)
+            self.assertEqual(len(captured), 1, "expected exactly one plot widget (the 'General' group)")
+            items = captured[0].getPlotItem().listDataItems()
+            return {item.name(): item for item in items if item.name()}
 
     def test_enabled_field_shows_min_max_of_the_truncated_range(self):
         rows = 200

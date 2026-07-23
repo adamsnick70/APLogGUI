@@ -1,9 +1,11 @@
 pandas>=2.0
 numpy>=1.24
-matplotlib>=3.7
-mplcursors>=0.5
+PySide6>=6.6
+pyqtgraph>=0.13
 
-# Tkinter is part of the standard library but is packaged separately by
-# Ubuntu/Debian. On Ubuntu 20.04/22.04/24.04, install it via apt rather than
-# pip before running this app:
-#   sudo apt-get install python3-tk
+# Dev/test
+pytest>=7.4
+pytest-qt>=4.2
+
+# Packaging (Windows; macOS/Linux packaging tools TBD)
+pyinstaller>=6.10

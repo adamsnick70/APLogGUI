@@ -2,3 +2,15 @@ __pycache__/
 *.pyc
 config.json
 ToDo.txt
+src/ui_*.py
+packaging/windows/build/
+packaging/windows/dist/
+packaging/windows/installer_output/
+packaging/linux/build/
+packaging/linux/dist/
+packaging/linux/installer_output/
+packaging/linux/staging/
+packaging/macos/build/
+packaging/macos/dist/
+packaging/macos/installer_output/
+assets/icons/icon.icns
