@@ -8,7 +8,9 @@ name: Release
 # "latest" tag is needed.
 on:
   push:
-    branches: [master]
+    # PySideUpgrade included so this can be exercised on push before the PR
+    # into master - drop it from this list once that PR lands.
+    branches: [master, PySideUpgrade]
   workflow_dispatch: {}
 
 permissions:
