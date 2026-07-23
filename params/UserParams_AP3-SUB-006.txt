@@ -3,7 +3,7 @@
 # whichever column holds throttle position for your log format.
 throttleField = "Throttle Pos (%)"
 
-plotNames = ["General", "Boost", "Air", "Fuel", "Timing", "KS Noise", "AVCS"]
+plotNames = ["General", "Boost", "Air", "Fuel", "Timing", "KS Noise", "AVCS / EGR"]
 
 # Each tuple is (field, scale factor, min_max_enbl). When min_max_enbl is
 # True, that line's legend label also shows its min/max over the plotted
@@ -53,11 +53,12 @@ plotFields = {
         ("KS Noise Cyl 1 (raw)", 1, False),
         ("Throttle Pos (%)", 10, False),
     ],
-    "AVCS": [
+    "AVCS / EGR": [
         ("AVCS Exh Left (°)", 1, False),
         ("AVCS Exh Right (°)", 1, False),
         ("AVCS In Left (°)", 1, False),
         ("AVCS In Right (°)", 1, False),
+        ("EGR Commanded (steps)",1,False)
     ],
 }
 
