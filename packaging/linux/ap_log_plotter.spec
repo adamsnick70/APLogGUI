@@ -21,13 +21,26 @@ from PyInstaller.utils.hooks import copy_metadata
 REPO_ROOT = Path(SPECPATH).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "src"
 
-# pandas' optional-dependency check reads pytz.__version__, which pytz
-# computes from its own package metadata rather than hardcoding in source -
-# PyInstaller doesn't bundle a dependency's dist-info metadata by default,
-# so without this pytz imports fine but has no __version__, and pandas
-# raises "Can't determine version for pytz" the moment anything touches
-# pandas._libs.tslibs (i.e. immediately, since LogPlotUtil imports pandas).
-METADATA = copy_metadata("pytz")
+
+def _copy_metadata_if_installed(package_name):
+    """pandas' optional-dependency check reads pytz.__version__, which pytz
+    computes from its own package metadata rather than hardcoding it in
+    source - PyInstaller doesn't bundle a dependency's dist-info metadata
+    by default, so without this pytz can import fine but have no
+    __version__, and pandas raises "Can't determine version for pytz" the
+    moment anything touches pandas._libs.tslibs. But pytz isn't a hard
+    pandas dependency on every platform/version combo (some resolve to
+    stdlib zoneinfo instead and never install it at all) - copy_metadata()
+    itself throws if the package isn't installed, which would otherwise
+    turn "nothing to fix here" into a build-breaking crash, so this is a
+    no-op rather than an error in that case."""
+    try:
+        return copy_metadata(package_name)
+    except Exception:
+        return []
+
+
+METADATA = _copy_metadata_if_installed("pytz")
 
 a = Analysis(
     [str(SRC_DIR / "LogPlotterGUI.py")],
