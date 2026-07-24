@@ -1,12 +1,18 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import pyqtgraph as pg
+from PySide6.QtCore import Qt
 
-from LogPlotUtil import LogPlotUtil, _formatLabel
+from LogPlotUtil import LogPlotUtil, _formatLabel, pen_for_index
+from InteractiveViewBox import make_interactive_plot_widget
+
+# Spec reference lines are always red-dashed, same as the Tkinter version's
+# 'r--' lines, regardless of which series they accompany.
+_SPEC_PEN = pg.mkPen(color="#d62728", width=1.5, style=Qt.PenStyle.DashLine)
 
 
 class ParamPlotUtil(LogPlotUtil):
-    """Backend for the "Parameterized Plots" tab: one figure per named group
-    in self.userParams.plotFields, either for an autofind-detected
+    """Backend for the "Parameterized Plots" tab: one pg.PlotWidget per named
+    group in self.userParams.plotFields, either for an autofind-detected
     high-throttle event or for the whole log (the user zooms/pans on the
     charts themselves instead of picking a start/end % up front)."""
 
@@ -29,36 +35,43 @@ class ParamPlotUtil(LogPlotUtil):
                 # truncated range actually plotted (e.g. an autofind event),
                 # not the whole log.
                 label = _formatLabel(field, scale, data=data[start:end], min_max_enbl=min_max_enbl)
-                linestyle = '--' if field == throttle_field else '-'
-                series.append((data, label, linestyle))
+                dashed = field == throttle_field
+                series.append((data, label, dashed))
 
             if not series:
                 print(f"No fields for '{name}' found in CSV. Skipping plot...")
                 continue
 
-            fig = plt.figure(figsize=self.figsize)
-            for data, label, linestyle in series:
-                plt.plot(time_adj, data[start:end], label = label , linestyle = linestyle)
+            plot_widget = make_interactive_plot_widget()
+            plot_item = plot_widget.getPlotItem()
+            plot_item.addLegend()
+            for index, (data, label, dashed) in enumerate(series):
+                plot_item.plot(time_adj, data[start:end], pen=pen_for_index(index, dashed=dashed), name=label)
+            # Stashed on the widget so LogPlotterGUI can (re)position the
+            # legend to avoid the data once it knows the widget's real
+            # on-screen size - see LegendPlacement.
+            plot_widget._legend_series = [(time_adj, data[start:end]) for data, _, _ in series]
 
             # Spec Lines
             plotSpecs = self.userParams.plotSpecs
             if name in plotSpecs.keys():
                 for curr_spec in plotSpecs[name].keys():
-                    plt.plot([ time_adj[0] , time_adj[-1] ], [ plotSpecs[name][curr_spec][0] , plotSpecs[name][curr_spec][0] ] , 'r--' , label = f"{curr_spec} Spec")
-                    if len( plotSpecs[name][curr_spec] ) == 2:
-                        plt.plot([ time_adj[0] , time_adj[-1] ], [ plotSpecs[name][curr_spec][1] , plotSpecs[name][curr_spec][1] ] , 'r--')
+                    spec_values = plotSpecs[name][curr_spec]
+                    plot_item.plot(
+                        [time_adj[0], time_adj[-1]], [spec_values[0], spec_values[0]],
+                        pen=_SPEC_PEN, name=f"{curr_spec} Spec",
+                    )
+                    if len(spec_values) == 2:
+                        plot_item.plot([time_adj[0], time_adj[-1]], [spec_values[1], spec_values[1]], pen=_SPEC_PEN)
 
-            plt.xlabel("Time")
-            plt.legend()
-            plt.title(name)
+            plot_item.setLabel('bottom', "Time")
+            plot_item.setTitle(name)
             limits = self.userParams.plotLimits.get(name)
             if limits:
-                plt.ylim(limits)
-            plt.grid(linestyle = '--')
+                plot_item.setYRange(*limits, padding=0)
+            plot_item.showGrid(x=True, y=True, alpha=0.3)
             if on_figure:
-                on_figure(fig)
-            else:
-                plt.show()
+                on_figure(plot_widget)
 
     def _plotLog (self , auto_find , on_figure = None , on_event_header = None):
         # Read In File

@@ -1,10 +1,11 @@
 import ast
 from pathlib import Path
 
-# params/ lives at the repo root (one level up from src/), not next to this
-# script, so it stays put regardless of where the code is organized - same
-# convention as LogPlotterGUI's CONFIG_PATH.
-PARAMS_DIR = Path(__file__).resolve().parent.parent / "params"
+from AppPaths import resource_root
+
+# Running from source, params/ lives at the repo root (one level up from
+# src/). Frozen, it's bundled alongside the app instead - see AppPaths.py.
+PARAMS_DIR = resource_root() / "params"
 FILENAME_PREFIX = "UserParams_"
 FILENAME_SUFFIX = ".txt"
 

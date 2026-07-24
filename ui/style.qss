@@ -1,0 +1,268 @@
+/* AP Log Plotter - dark, "modern webapp" QSS pass (Phase 4).
+ *
+ * Palette (kept in sync with the COLOR_* constants in LogPlotterGUI.py,
+ * which is what pyqtgraph's chart background/foreground are set from too):
+ *   background        #1e1e1e
+ *   background panel  #252526
+ *   background input  #3c3c3c
+ *   background hover  #2a2d2e
+ *   foreground        #cccccc
+ *   foreground muted  #9d9d9d
+ *   border            #3c3c3c
+ *   accent            #0e639c
+ *   accent hover      #1177bb
+ *   accent active     #005a9e
+ *
+ * {CHECKMARK_URL} is substituted with an absolute file:// path to
+ * checkmark.svg at load time (see _load_stylesheet in LogPlotterGUI.py) -
+ * QSS url() needs an absolute or resource path to resolve reliably
+ * regardless of the process's current working directory.
+ *
+ * Qt Style Sheets have no CSS-style animated "transition" property, so
+ * hover/pressed/focus states below are distinct instantaneous colors
+ * rather than an animated fade.
+ */
+
+QMainWindow, QWidget {
+    background-color: #1e1e1e;
+    color: #cccccc;
+    font-size: 13px;
+}
+
+QToolTip {
+    background-color: #252526;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+
+QLabel {
+    background: transparent;
+}
+
+/* -------------------------------------------------------------------- */
+/* Card-like panels: the field sidebar and each tab's control cluster    */
+/* -------------------------------------------------------------------- */
+QWidget#topBarWidget,
+QWidget#sidebarWidget,
+QWidget#paramControlsWidget,
+QWidget#customSetupWidget,
+QWidget#userParamsTopWidget {
+    background-color: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 8px;
+}
+
+QWidget#topBarWidget { padding: 8px; }
+QWidget#sidebarWidget { padding: 6px; }
+QWidget#paramControlsWidget { padding: 10px; }
+QWidget#customSetupWidget { padding: 10px; }
+QWidget#userParamsTopWidget { padding: 8px; }
+
+/* -------------------------------------------------------------------- */
+/* Inputs                                                                */
+/* -------------------------------------------------------------------- */
+QLineEdit, QPlainTextEdit, QListWidget, QComboBox {
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
+    border-radius: 6px;
+    padding: 4px 6px;
+    selection-background-color: #0e639c;
+    selection-color: #ffffff;
+}
+
+QLineEdit:focus, QPlainTextEdit:focus, QListWidget:focus, QComboBox:focus {
+    border: 1px solid #1177bb;
+}
+
+QLineEdit:disabled, QPlainTextEdit:disabled, QComboBox:disabled {
+    background-color: #252526;
+    color: #9d9d9d;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #3c3c3c;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
+    selection-background-color: #0e639c;
+    selection-color: #ffffff;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 3px 4px;
+    border-radius: 4px;
+}
+
+QListWidget::item:hover {
+    background-color: #2a2d2e;
+}
+
+QListWidget::item:selected {
+    background-color: #0e639c;
+    color: #ffffff;
+}
+
+/* -------------------------------------------------------------------- */
+/* Buttons                                                               */
+/* -------------------------------------------------------------------- */
+QPushButton {
+    background-color: #0e639c;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+}
+
+QPushButton:hover {
+    background-color: #1177bb;
+}
+
+QPushButton:pressed {
+    background-color: #005a9e;
+}
+
+QPushButton:focus {
+    border: 1px solid #ffffff;
+}
+
+QPushButton:disabled {
+    background-color: #3c3c3c;
+    color: #9d9d9d;
+}
+
+/* -------------------------------------------------------------------- */
+/* Checkboxes: rounded box + checkmark, no Pillow-drawn images needed    */
+/* -------------------------------------------------------------------- */
+QCheckBox {
+    spacing: 8px;
+    background: transparent;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+    background-color: #3c3c3c;
+}
+
+QCheckBox::indicator:hover {
+    border: 1px solid #1177bb;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #0e639c;
+    border: 1px solid #0e639c;
+    image: url({CHECKMARK_URL});
+}
+
+QCheckBox::indicator:disabled {
+    background-color: #252526;
+    border: 1px solid #252526;
+}
+
+QCheckBox:disabled {
+    color: #9d9d9d;
+}
+
+/* -------------------------------------------------------------------- */
+/* Tabs                                                                  */
+/* -------------------------------------------------------------------- */
+QTabWidget::pane {
+    border: 1px solid #3c3c3c;
+    border-radius: 8px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background-color: #252526;
+    color: #cccccc;
+    padding: 8px 16px;
+    margin-right: 2px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+QTabBar::tab:hover {
+    background-color: #2a2d2e;
+}
+
+QTabBar::tab:selected {
+    background-color: #0e639c;
+    color: #ffffff;
+}
+
+/* -------------------------------------------------------------------- */
+/* Scroll areas / scrollbars                                            */
+/* -------------------------------------------------------------------- */
+QScrollArea {
+    border: none;
+    background: transparent;
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #3c3c3c;
+    border-radius: 5px;
+    min-height: 24px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #4a4a4a;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: #3c3c3c;
+    border-radius: 5px;
+    min-width: 24px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #4a4a4a;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
+
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
+}
+
+/* -------------------------------------------------------------------- */
+/* Status bar / splitter                                                */
+/* -------------------------------------------------------------------- */
+QStatusBar {
+    background-color: #252526;
+    color: #9d9d9d;
+    border-top: 1px solid #3c3c3c;
+}
+
+QSplitter::handle {
+    background-color: #1e1e1e;
+    width: 4px;
+}
+
+QSplitter::handle:hover {
+    background-color: #0e639c;
+}

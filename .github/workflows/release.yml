@@ -1,0 +1,141 @@
+name: Release
+
+# A push to master builds all three OS installers and
+# publishes them as one GitHub Release, tagged with that build's stamped
+# version (see tools/stamp_version.py) - AutoUpdate.py's check hits
+# /releases/latest, which GitHub resolves to whichever release was
+# published most recently regardless of its tag name, so no single reused
+# "latest" tag is needed.
+on:
+  push:
+    # PySideUpgrade included so this can be exercised on push before the PR
+    # into master - drop it from this list once that PR lands.
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.stamp.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: stamp
+        # Reuses tools/stamp_version.py's own default_version() rather than
+        # re-deriving the "YYYY.MM.DD+sha" format here too, so there's one
+        # place that format is defined.
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import sys
+          sys.path.insert(0, "tools")
+          from stamp_version import default_version
+          print(f"version={default_version()}")
+          PY
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      # The same runtime libs packaging/linux/build_deb.sh declares as
+      # Depends: - needed here too, just to let Qt's offscreen platform
+      # plugin load at all.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1 fonts-dejavu-core
+      - run: python tools/build_ui.py --force
+      - env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ -q
+
+  build-windows:
+    needs: [version, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python tools/stamp_version.py "${{ needs.version.outputs.version }}"
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+        shell: pwsh
+      - run: choco install innosetup -y --no-progress
+        shell: pwsh
+      - run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=${{ needs.version.outputs.version }} packaging\windows\installer.iss
+        shell: pwsh
+      - run: |
+          $dir = "packaging\windows\installer_output"
+          $hash = (Get-FileHash "$dir\AP-Log-Plotter-Setup.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash  AP-Log-Plotter-Setup.exe" | Out-File -Encoding ascii "$dir\AP-Log-Plotter-Setup.exe.sha256"
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: packaging/windows/installer_output/*
+
+  build-macos:
+    needs: [version, test]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python tools/stamp_version.py "${{ needs.version.outputs.version }}"
+      - run: bash packaging/macos/build.sh
+      - run: bash packaging/macos/build_pkg.sh "${{ needs.version.outputs.version }}"
+      - run: |
+          cd packaging/macos/installer_output
+          shasum -a 256 AP-Log-Plotter.pkg > AP-Log-Plotter.pkg.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: packaging/macos/installer_output/*
+
+  build-linux:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1 libegl1 fonts-dejavu-core ruby ruby-dev build-essential
+          sudo gem install --no-document fpm
+      - run: python tools/stamp_version.py "${{ needs.version.outputs.version }}"
+      - run: bash packaging/linux/build.sh
+      - run: bash packaging/linux/build_deb.sh "${{ needs.version.outputs.version }}"
+      - run: |
+          cd packaging/linux/installer_output
+          sha256sum ap-log-plotter_*.deb > "$(ls ap-log-plotter_*.deb).sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          path: packaging/linux/installer_output/*
+
+  release:
+    needs: [version, build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.version }}
+          name: ${{ needs.version.outputs.version }}
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

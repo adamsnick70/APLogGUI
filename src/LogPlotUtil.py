@@ -2,10 +2,26 @@ import re
 
 import pandas
 import numpy as np
+import pyqtgraph as pg
+from PySide6.QtCore import Qt
 
 from UserParams import UserParams, DEFAULT_VERSION
 
 _FIELD_RE = re.compile(r'^(.*)\(([^()]*)\)\s*$')
+
+# Cycled through in order for successive series on a chart, matching
+# matplotlib's default "tab10" color cycle that the Tkinter version relied on
+# implicitly (pyqtgraph, unlike matplotlib, doesn't auto-cycle pen colors).
+_TAB10_PALETTE = (
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+)
+
+
+def pen_for_index(index, dashed=False):
+    color = _TAB10_PALETTE[index % len(_TAB10_PALETTE)]
+    style = Qt.PenStyle.DashLine if dashed else Qt.PenStyle.SolidLine
+    return pg.mkPen(color=color, width=1.5, style=style)
 
 
 def _default_user_params():
@@ -41,11 +57,10 @@ class LogPlotUtil:
     Tab-specific plot rendering lives in ParamPlots.ParamPlotUtil and
     CustomPlots.CustomPlotUtil, both of which subclass this."""
 
-    def __init__(self , logPath , thresh , figsize = (20, 8), userParams = None):
+    def __init__(self , logPath , thresh , userParams = None):
         self.logPath_ = logPath
         self.throttle_threshold = thresh
         self.sps = 13
-        self.figsize = figsize
         # Falls back to a fresh, default-version UserParams when the caller
         # doesn't supply one (e.g. direct/test use of ParamPlotUtil rather
         # than going through LogPlotterGUI's version-aware instance).

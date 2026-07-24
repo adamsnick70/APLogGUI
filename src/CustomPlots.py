@@ -1,11 +1,12 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import pyqtgraph as pg
 
-from LogPlotUtil import LogPlotUtil, _formatLabel
+from LogPlotUtil import LogPlotUtil, _formatLabel, pen_for_index
+from InteractiveViewBox import make_interactive_plot_widget
 
 
 class CustomPlotUtil(LogPlotUtil):
-    """Backend for the "Custom Plot" tab: a single figure built from
+    """Backend for the "Custom Plot" tab: a single pg.PlotWidget built from
     whichever fields/scales the user picked, either for an autofind-detected
     high-throttle event or for the whole log (the user zooms/pans on the
     chart itself instead of picking a start/end % up front). Autofind still
@@ -29,17 +30,20 @@ class CustomPlotUtil(LogPlotUtil):
             print("No selected fields found in CSV. Skipping plot...")
             return
 
-        fig = plt.figure(figsize=self.figsize)
-        for data, label in series:
-            plt.plot(time_adj, data[start:end], label=label)
-        plt.xlabel("Time")
-        plt.legend()
-        plt.title("Custom Plot")
-        plt.grid(linestyle='--')
+        plot_widget = make_interactive_plot_widget()
+        plot_item = plot_widget.getPlotItem()
+        plot_item.addLegend()
+        for index, (data, label) in enumerate(series):
+            plot_item.plot(time_adj, data[start:end], pen=pen_for_index(index), name=label)
+        # Stashed on the widget so LogPlotterGUI can (re)position the legend
+        # to avoid the data once it knows the widget's real on-screen size -
+        # see LegendPlacement.
+        plot_widget._legend_series = [(time_adj, data[start:end]) for data, _ in series]
+        plot_item.setLabel('bottom', "Time")
+        plot_item.setTitle("Custom Plot")
+        plot_item.showGrid(x=True, y=True, alpha=0.3)
         if on_figure:
-            on_figure(fig)
-        else:
-            plt.show()
+            on_figure(plot_widget)
 
     def _plotCustomLog(self, fields_scales, auto_find, on_figure=None, on_event_header=None):
         # Read In File

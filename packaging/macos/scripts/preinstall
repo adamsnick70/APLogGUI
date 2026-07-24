@@ -1,0 +1,73 @@
+#!/bin/bash
+# pkgbuild preinstall script: legacy-install detection & config migration
+# (ToDo.txt section 12). Runs as root, before the package payload is
+# written, so the old bundle's launcher script is still readable here.
+#
+# install_mac.command never registered a real "installed program" receipt -
+# it just wrote an AP Log Plotter.app (at ~/Applications, per-user) whose
+# embedded launcher script `cd`s into the git-cloned repo it was run from.
+# This installer's own payload targets /Applications instead (system-wide,
+# admin-authenticated - see build_pkg.sh) rather than that same per-user
+# path, so nothing overwrites the old bundle automatically; this script
+# migrates its config, then removes it itself so Spotlight/Launchpad don't
+# end up showing two "AP Log Plotter" entries.
+set -e
+
+# preinstall runs as root; the console user's home (not root's) is where
+# ~/Applications and this app's config actually live.
+CONSOLE_USER="$(stat -f "%Su" /dev/console)"
+USER_HOME="$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+if [ -z "$USER_HOME" ]; then
+    exit 0
+fi
+
+LEGACY_APP="$USER_HOME/Applications/AP Log Plotter.app"
+LAUNCHER="$LEGACY_APP/Contents/MacOS/AP Log Plotter"
+if [ ! -f "$LAUNCHER" ]; then
+    exit 0
+fi
+
+OLD_REPO="$(grep -m1 -oE 'cd "[^"]+"' "$LAUNCHER" | sed -E 's/cd "(.*)"/\1/')"
+if [ -z "$OLD_REPO" ] || [ ! -f "$OLD_REPO/config.json" ]; then
+    exit 0
+fi
+
+NEW_CONFIG_DIR="$USER_HOME/Library/Application Support/AP Log Plotter"
+NEW_CONFIG="$NEW_CONFIG_DIR/config.json"
+if [ -f "$NEW_CONFIG" ]; then
+    # Never overwrite settings the new app may have already written on a
+    # prior run - migration only seeds a config that doesn't exist yet.
+    exit 0
+fi
+
+# config.json is written by Python's json.dump(cfg, f) with its default
+# separators - `{"key": "value", ...}` - so this simple sed extraction
+# (not a real JSON parser, but Bash has none built in) is enough.
+AP_VERSION="$(sed -n 's/.*"ap_version": *"\([^"]*\)".*/\1/p' "$OLD_REPO/config.json")"
+LAST_DIR="$(sed -n 's/.*"last_dir": *"\([^"]*\)".*/\1/p' "$OLD_REPO/config.json")"
+
+if [ -n "$AP_VERSION" ] || [ -n "$LAST_DIR" ]; then
+    mkdir -p "$NEW_CONFIG_DIR"
+    {
+        printf '{'
+        FIRST=1
+        if [ -n "$AP_VERSION" ]; then
+            printf '"ap_version": "%s"' "$AP_VERSION"
+            FIRST=0
+        fi
+        if [ -n "$LAST_DIR" ]; then
+            [ "$FIRST" -eq 0 ] && printf ', '
+            printf '"last_dir": "%s"' "$LAST_DIR"
+        fi
+        printf '}'
+    } > "$NEW_CONFIG"
+    chown -R "$CONSOLE_USER" "$USER_HOME/Library/Application Support/AP Log Plotter"
+fi
+
+# Non-destructive per ToDo.txt section 12: only the ~/Applications bundle
+# (the "search entry point") is removed, never the git checkout it points
+# at (params/UserParams edits or other user files may live there) and
+# never any Homebrew-installed Python/Tk.
+rm -rf "$LEGACY_APP"
+
+exit 0

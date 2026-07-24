@@ -1,0 +1,7 @@
+#!/bin/bash
+# pkgbuild postinstall script: refresh Launch Services so Spotlight/
+# Launchpad pick up the new /Applications/AP Log Plotter.app right away,
+# same call install_mac.command already made after writing its bundle.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "/Applications/AP Log Plotter.app" >/dev/null 2>&1 || true
+exit 0

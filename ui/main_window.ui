@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>2100</width>
+    <height>1300</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>AP Log Plotter</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="mainVerticalLayout">
+    <item>
+     <widget class="QWidget" name="topBarWidget">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <layout class="QHBoxLayout" name="topBarLayout">
+      <item>
+       <widget class="QLabel" name="logFileLabel">
+        <property name="text">
+         <string>Log file:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="logPathEdit"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="apVersionLabel">
+        <property name="text">
+         <string>AP Version:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="apVersionCombo">
+        <property name="sizeAdjustPolicy">
+         <enum>QComboBox::AdjustToContents</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="browseButton">
+        <property name="text">
+         <string>Browse...</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QSplitter" name="bodySplitter">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>1</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <widget class="QWidget" name="sidebarWidget">
+       <layout class="QVBoxLayout" name="sidebarLayout">
+        <item>
+         <widget class="QLabel" name="csvFieldsLabel">
+          <property name="text">
+           <string>CSV Fields</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="fieldPanel">
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+          <property name="lineWrapMode">
+           <enum>QPlainTextEdit::NoWrap</enum>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse|Qt::TextSelectableByKeyboard</set>
+          </property>
+          <property name="plainText">
+           <string>No log file selected.</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QTabWidget" name="tabWidget">
+       <widget class="QWidget" name="paramTab">
+        <attribute name="title">
+         <string>Parameterized Plots</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="paramTabLayout">
+         <item>
+          <widget class="QWidget" name="paramControlsWidget">
+          <layout class="QHBoxLayout" name="paramControlsLayout">
+           <item>
+            <spacer name="paramControlsSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QLabel" name="paramAutoFindThreshLabel">
+             <property name="text">
+              <string>Auto-Find Throttle Threshold (%): </string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="paramAutoFindThreshEdit">
+             <property name="maximumSize">
+              <size>
+               <width>60</width>
+               <height>16777215</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>75</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="paramAutoFindCheck">
+             <property name="text">
+              <string>Autofind high-throttle events</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="paramPdfButton">
+             <property name="visible">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Save PDF</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="paramPlotButton">
+             <property name="text">
+              <string>Plot</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QScrollArea" name="paramPlotScrollArea">
+           <property name="widgetResizable">
+            <bool>true</bool>
+           </property>
+           <widget class="QWidget" name="paramPlotScrollContent">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>0</y>
+              <width>100</width>
+              <height>100</height>
+             </rect>
+            </property>
+            <layout class="QVBoxLayout" name="paramPlotScrollLayout">
+             <item>
+              <spacer name="paramPlotScrollSpacer">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="customTab">
+        <attribute name="title">
+         <string>Custom Plot</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="customTabLayout">
+         <item>
+          <widget class="QWidget" name="customSetupWidget">
+          <layout class="QHBoxLayout" name="customSetupLayout">
+           <item>
+            <layout class="QVBoxLayout" name="customSearchLayout">
+             <item>
+              <widget class="QLabel" name="customSearchLabel">
+               <property name="text">
+                <string>Search fields:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="customSearchEdit"/>
+             </item>
+             <item>
+              <widget class="QListWidget" name="customFieldListWidget">
+               <property name="selectionMode">
+                <enum>QAbstractItemView::ExtendedSelection</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="customAddSelectedButton">
+               <property name="text">
+                <string>Add Selected →</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QVBoxLayout" name="customSelectedLayout">
+             <item>
+              <widget class="QLabel" name="customSelectedLabel">
+               <property name="text">
+                <string>Selected fields:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QScrollArea" name="customSelectedScrollArea">
+               <property name="widgetResizable">
+                <bool>true</bool>
+               </property>
+               <widget class="QWidget" name="customSelectedContainer">
+                <property name="geometry">
+                 <rect>
+                  <x>0</x>
+                  <y>0</y>
+                  <width>100</width>
+                  <height>100</height>
+                 </rect>
+                </property>
+                <layout class="QVBoxLayout" name="customSelectedContainerLayout">
+                 <item>
+                  <spacer name="customSelectedContainerSpacer">
+                   <property name="orientation">
+                    <enum>Qt::Vertical</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>20</width>
+                     <height>40</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                </layout>
+               </widget>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="customThreshLayout">
+               <item>
+                <widget class="QLabel" name="customThreshLabel">
+                 <property name="text">
+                  <string>Auto-Find Throttle Threshold (%): </string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLineEdit" name="customThreshEdit">
+                 <property name="maximumSize">
+                  <size>
+                   <width>60</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="text">
+                  <string>75</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="customAutoFindCheck">
+               <property name="text">
+                <string>Autofind high-throttle events</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="customButtonLayout">
+           <item>
+            <spacer name="customButtonLeftSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="customPdfButton">
+             <property name="visible">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Save PDF</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="customPlotButton">
+             <property name="text">
+              <string>Plot</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="customButtonRightSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QScrollArea" name="customPlotScrollArea">
+           <property name="widgetResizable">
+            <bool>true</bool>
+           </property>
+           <widget class="QWidget" name="customPlotScrollContent">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>0</y>
+              <width>100</width>
+              <height>100</height>
+             </rect>
+            </property>
+            <layout class="QVBoxLayout" name="customPlotScrollLayout">
+             <item>
+              <spacer name="customPlotScrollSpacer">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="userParamsTab">
+        <attribute name="title">
+         <string>User Parameters</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="userParamsTabLayout">
+         <item>
+          <widget class="QWidget" name="userParamsTopWidget">
+          <layout class="QHBoxLayout" name="userParamsTopLayout">
+           <item>
+            <widget class="QLabel" name="userParamsEditingLabel">
+             <property name="text">
+              <string>Editing parameters for:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="userParamsVersionLabel">
+             <property name="text">
+              <string/>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="userParamsTopSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="markDefaultButton">
+             <property name="visible">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Mark Version as Default</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="savePrefsButton">
+             <property name="visible">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Save Preferences</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPlainTextEdit" name="userParamsTextEdit">
+           <property name="lineWrapMode">
+            <enum>QPlainTextEdit::NoWrap</enum>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

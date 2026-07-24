@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AP Log Plotter
+Comment=Plot and analyze AccessPort datalogs
+Exec=ap-log-plotter
+Icon=ap-log-plotter
+Terminal=false
+Categories=Utility;Engineering;
