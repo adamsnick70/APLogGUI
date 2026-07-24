@@ -1,6 +1,6 @@
 name: Release
 
-# ToDo.txt section 10: a push to master builds all three OS installers and
+# A push to master builds all three OS installers and
 # publishes them as one GitHub Release, tagged with that build's stamped
 # version (see tools/stamp_version.py) - AutoUpdate.py's check hits
 # /releases/latest, which GitHub resolves to whichever release was
@@ -10,7 +10,7 @@ on:
   push:
     # PySideUpgrade included so this can be exercised on push before the PR
     # into master - drop it from this list once that PR lands.
-    branches: [master, PySideUpgrade]
+    branches: [master]
   workflow_dispatch: {}
 
 permissions:

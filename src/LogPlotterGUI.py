@@ -27,7 +27,7 @@ if not getattr(sys, "frozen", False):
             ) from exc
 
 import pyqtgraph as pg
-from PySide6.QtCore import QByteArray, QEvent, QObject, QThread, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPalette, QColor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QMainWindow, QMessageBox, QWidget,
@@ -40,6 +40,7 @@ from LogPlotUtil import LogPlotUtil
 from ParamPlots import ParamPlotUtil
 from CustomPlots import CustomPlotUtil
 from PdfExport import save_plots_pdf
+from LegendPlacement import position_legend_to_avoid_overlap
 from ui_main_window import Ui_MainWindow
 
 # Running from source, config.json lives at the repo root (one level up from
@@ -103,6 +104,29 @@ def _apply_dark_theme(app):
 SIDEBAR_WEIGHT = 1
 TABS_WEIGHT = 4
 SIDEBAR_MAX_WIDTH_REFERENCE_TEXT = "AP Info:[AP3-xxx-00x vx.x.x.x-xxxxx]"
+
+# Plots were originally designed at a fixed 2000x800px (20x8in @ 100dpi, the
+# old Tkinter/matplotlib version's BASE_FIGSIZE) - that's the reference size
+# plots are scaled from to fill the plot area's current width; height is
+# scaled at HEIGHT_FALLOFF of the width's rate of change so narrow windows
+# don't squash plots into an unreadable sliver, and wide/high-res monitors
+# don't stretch them absurdly tall (ported from nickDev's _figsize_for_width).
+BASE_PLOT_WIDTH_PX = 2000
+BASE_PLOT_HEIGHT_PX = 800
+HEIGHT_FALLOFF = 0.75
+
+
+def _plot_height_for_width(avail_width_px, avail_height_px=None):
+    width_ratio = max(avail_width_px, 1) / BASE_PLOT_WIDTH_PX
+    height_ratio = 1 - HEIGHT_FALLOFF * (1 - width_ratio)
+    height_px = BASE_PLOT_HEIGHT_PX * height_ratio
+    if avail_height_px is not None:
+        # The Custom Plot tab shows one chart at a time and the whole point
+        # is that it shouldn't need its own scrollbar to see all of it, so
+        # cap the height to whatever room is actually available instead of
+        # only ever deriving it from width.
+        height_px = min(height_px, max(avail_height_px, 1))
+    return max(int(height_px), 1)
 
 
 def _load_config():
@@ -183,9 +207,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # unmodified wheel scroll over it can be redirected there instead of
         # zooming (see eventFilter).
         self._plot_scroll_map = {}
+        # Recomputed whenever the plot area's size changes - on the initial
+        # plot pass (see _plot_parameterized/_plot_custom) and again on every
+        # live resize of the scroll area's viewport (see eventFilter) so a
+        # window snapped to a different size re-scales plots already on
+        # screen instead of leaving them at whatever size they were plotted
+        # at - see _plot_height_for_width.
+        self._paramPlotHeight = BASE_PLOT_HEIGHT_PX
+        self._customPlotHeight = BASE_PLOT_HEIGHT_PX
 
         self._restore_geometry()
         self.apVersionCombo.installEventFilter(self)
+        self.paramPlotScrollArea.viewport().installEventFilter(self)
+        self.customPlotScrollArea.viewport().installEventFilter(self)
 
         self.browseButton.clicked.connect(self._browse)
         self.logPathEdit.editingFinished.connect(self._on_log_path_committed)
@@ -312,6 +346,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 scrollbar = self._plot_scroll_map[obj].verticalScrollBar()
                 scrollbar.setValue(scrollbar.value() - event.angleDelta().y())
                 return True
+
+        if event.type() == QEvent.Type.Resize:
+            # A plain resize of the scroll area's viewport (window snapped/
+            # resized, splitter dragged, etc.) re-scales whatever plots are
+            # already on screen, not just the next ones plotted - otherwise
+            # plots stay stuck at whatever size they were plotted at.
+            # Reshaping a plot also changes which corner (if any) the
+            # legend can sit in without covering data, so it's
+            # re-optimized alongside the height (see LegendPlacement).
+            if obj is self.paramPlotScrollArea.viewport():
+                self._update_param_plot_heights()
+                self._reposition_param_legends()
+            elif obj is self.customPlotScrollArea.viewport():
+                self._update_custom_plot_heights()
+                self._reposition_custom_legends()
 
         return super().eventFilter(obj, event)
 
@@ -507,6 +556,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.paramAxisGroups = [[]]
         self.statusLabel.setText("Plotting...")
 
+        self._update_param_plot_heights()
+
         try:
             util = ParamPlotUtil(path, thresh, userParams=self.userParams)
             util._plotLog(
@@ -527,6 +578,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         for group in self.paramAxisGroups:
             self._link_x_axes(group)
         self._update_param_pdf_button()
+        # Deferred rather than called directly: a just-inserted plot widget
+        # doesn't have its real on-screen size yet (that's only assigned once
+        # Qt processes the pending layout pass), and legend placement needs
+        # that real size - see LegendPlacement.
+        QTimer.singleShot(0, self._reposition_param_legends)
 
     def _plot_custom(self):
         path = self.logPathEdit.text().strip()
@@ -558,6 +614,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.customPlotSequence = []
         self.statusLabel.setText("Plotting...")
 
+        self._update_custom_plot_heights()
+
         try:
             util = CustomPlotUtil(path, thresh, userParams=self.userParams)
             util._plotCustomLog(
@@ -576,6 +634,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.statusLabel.setText(f"Plotted {len(self.customFigures)} chart(s).")
         self._update_custom_pdf_button()
+        # See the matching comment in _plot_parameterized.
+        QTimer.singleShot(0, self._reposition_custom_legends)
 
     def _clear_plot_layout(self, layout, figures):
         # Every scroll area's layout ends in a trailing stretch spacer (see
@@ -586,12 +646,54 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                self._plot_scroll_map.pop(widget, None)
+                # Only plot widgets (QAbstractScrollArea) were registered by
+                # their viewport() - see _on_param_figure/_on_custom_figure.
+                # Event header widgets have no viewport() and were never
+                # registered at all.
+                if hasattr(widget, "viewport"):
+                    self._plot_scroll_map.pop(widget.viewport(), None)
                 widget.deleteLater()
         figures.clear()
 
     def _insert_before_spacer(self, layout, widget):
         layout.insertWidget(layout.count() - 1, widget)
+
+    def _avail_plot_width(self, scroll_area, layout):
+        margins = layout.contentsMargins()
+        return scroll_area.viewport().width() - margins.left() - margins.right()
+
+    def _update_param_plot_heights(self):
+        avail_width = self._avail_plot_width(self.paramPlotScrollArea, self.paramPlotScrollLayout)
+        self._paramPlotHeight = _plot_height_for_width(avail_width)
+        for widget in self.paramFigures:
+            widget.setMinimumHeight(self._paramPlotHeight)
+
+    def _update_custom_plot_heights(self):
+        avail_width = self._avail_plot_width(self.customPlotScrollArea, self.customPlotScrollLayout)
+        avail_height = self.customPlotScrollArea.viewport().height()
+        self._customPlotHeight = _plot_height_for_width(avail_width, avail_height_px=avail_height)
+        for widget in self.customFigures:
+            widget.setMinimumHeight(self._customPlotHeight)
+
+    def _reposition_param_legends(self):
+        for widget in self.paramFigures:
+            self._reposition_legend(widget)
+
+    def _reposition_custom_legends(self):
+        for widget in self.customFigures:
+            self._reposition_legend(widget)
+
+    def _reposition_legend(self, plot_widget):
+        # _legend_series is stashed by ParamPlotUtil/CustomPlotUtil - the
+        # (x, y) arrays actually plotted, needed to know what the legend
+        # would be covering (see LegendPlacement).
+        series = getattr(plot_widget, "_legend_series", None)
+        if not series:
+            return
+        plot_item = plot_widget.getPlotItem()
+        if plot_item.legend is None:
+            return
+        position_legend_to_avoid_overlap(plot_item.getViewBox(), plot_item.legend, series)
 
     def _add_event_header(self, layout, evt_counter):
         header = QWidget()
@@ -609,13 +711,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._insert_before_spacer(layout, header)
 
     def _on_param_figure(self, plot_widget):
-        plot_widget.setMinimumHeight(380)
+        plot_widget.setMinimumHeight(self._paramPlotHeight)
         self._insert_before_spacer(self.paramPlotScrollLayout, plot_widget)
         self.paramFigures.append(plot_widget)
         self.paramPlotSequence.append(("figure", plot_widget))
         self.paramAxisGroups[-1].append(plot_widget)
-        self._plot_scroll_map[plot_widget] = self.paramPlotScrollArea
-        plot_widget.installEventFilter(self)
+        # plot_widget is a QAbstractScrollArea (QGraphicsView) - real mouse/
+        # wheel events are delivered to its viewport() child widget, not to
+        # plot_widget itself, so the filter has to be installed there or it
+        # silently never fires (see eventFilter).
+        viewport = plot_widget.viewport()
+        self._plot_scroll_map[viewport] = self.paramPlotScrollArea
+        viewport.installEventFilter(self)
 
     def _on_param_event_header(self, evt_counter):
         self._add_event_header(self.paramPlotScrollLayout, evt_counter)
@@ -625,12 +732,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.paramAxisGroups.append([])
 
     def _on_custom_figure(self, plot_widget):
-        plot_widget.setMinimumHeight(450)
+        plot_widget.setMinimumHeight(self._customPlotHeight)
         self._insert_before_spacer(self.customPlotScrollLayout, plot_widget)
         self.customFigures.append(plot_widget)
         self.customPlotSequence.append(("figure", plot_widget))
-        self._plot_scroll_map[plot_widget] = self.customPlotScrollArea
-        plot_widget.installEventFilter(self)
+        # See the matching comment in _on_param_figure.
+        viewport = plot_widget.viewport()
+        self._plot_scroll_map[viewport] = self.customPlotScrollArea
+        viewport.installEventFilter(self)
 
     def _on_custom_event_header(self, evt_counter):
         self._add_event_header(self.customPlotScrollLayout, evt_counter)

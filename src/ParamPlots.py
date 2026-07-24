@@ -47,6 +47,10 @@ class ParamPlotUtil(LogPlotUtil):
             plot_item.addLegend()
             for index, (data, label, dashed) in enumerate(series):
                 plot_item.plot(time_adj, data[start:end], pen=pen_for_index(index, dashed=dashed), name=label)
+            # Stashed on the widget so LogPlotterGUI can (re)position the
+            # legend to avoid the data once it knows the widget's real
+            # on-screen size - see LegendPlacement.
+            plot_widget._legend_series = [(time_adj, data[start:end]) for data, _, _ in series]
 
             # Spec Lines
             plotSpecs = self.userParams.plotSpecs
