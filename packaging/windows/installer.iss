@@ -44,6 +44,17 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
+[InstallDelete]
+; [Files] below only ever copies files in - it never removes a file that
+; existed in a previous install but isn't part of this one. Without this,
+; updating over an existing install silently accumulates every version's
+; PyInstaller output on top of each other (two different numpy dist-infos,
+; and whatever mismatched pandas/numpy/pytz .pyd combination that implies,
+; have both been found coexisting on a dev machine that hit exactly this).
+; Wiping _internal before [Files] runs guarantees every install is a clean
+; one-version snapshot, matching a fresh PyInstaller --onedir output.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
