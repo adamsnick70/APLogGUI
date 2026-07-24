@@ -10,9 +10,19 @@ tools/build_ui.py compile step first so ui_main_window.py exists to bundle.
 """
 from pathlib import Path
 
+from PyInstaller.utils.hooks import copy_metadata
+
 REPO_ROOT = Path(SPECPATH).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "src"
 ICON = REPO_ROOT / "assets" / "icons" / "icon.ico"
+
+# pandas' optional-dependency check reads pytz.__version__, which pytz
+# computes from its own package metadata rather than hardcoding in source -
+# PyInstaller doesn't bundle a dependency's dist-info metadata by default,
+# so without this pytz imports fine but has no __version__, and pandas
+# raises "Can't determine version for pytz" the moment anything touches
+# pandas._libs.tslibs (i.e. immediately, since LogPlotUtil imports pandas).
+METADATA = copy_metadata("pytz")
 
 # This dev machine's global (non-venv) Python env has a large,
 # app-unrelated ML/dev stack installed (torch, transformers, sklearn,
@@ -39,7 +49,7 @@ a = Analysis(
     datas=[
         (str(REPO_ROOT / "ui"), "ui"),
         (str(REPO_ROOT / "params"), "params"),
-    ],
+    ] + METADATA,
     excludes=EXCLUDES,
 )
 pyz = PYZ(a.pure)
