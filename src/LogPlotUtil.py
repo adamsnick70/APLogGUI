@@ -9,6 +9,12 @@ from UserParams import UserParams, DEFAULT_VERSION
 
 _FIELD_RE = re.compile(r'^(.*)\(([^()]*)\)\s*$')
 
+# The AccessPort stamps its version into the log's last column header, e.g.
+# "AP Info:[AP3-SUB-006 v1.7.6.0-28785][2023 USDM WRX MT (H) CCF Gen3.1]..."
+# - the version token is whatever comes right after the opening bracket, up
+# to the first space.
+_AP_VERSION_RE = re.compile(r'^AP Info:\[(\S+)')
+
 # Cycled through in order for successive series on a chart, matching
 # matplotlib's default "tab10" color cycle that the Tkinter version relied on
 # implicitly (pyqtgraph, unlike matplotlib, doesn't auto-cycle pen colors).
@@ -69,6 +75,16 @@ class LogPlotUtil:
     @staticmethod
     def list_fields(logPath):
         return list(pandas.read_csv(logPath, encoding='unicode_escape', nrows=0).columns)
+
+    @staticmethod
+    def detect_ap_version(fields):
+        """Pulls the AP version (e.g. "AP3-SUB-006") out of the log's own
+        "AP Info:[<version> v<...>]..." column header, if present."""
+        for field in fields:
+            match = _AP_VERSION_RE.match(field)
+            if match:
+                return match.group(1)
+        return None
 
     def _readLog(self):
         fl = pandas.read_csv( self.logPath_ , encoding = 'unicode_escape' )

@@ -11,7 +11,10 @@ Download the installer for your OS from the
 [GitHub Releases page](https://github.com/adamsnick70/APLogGUI/releases) and run it:
 
 - **Windows**: `AP-Log-Plotter-Setup.exe` - installs for your user only, no
-  admin prompt. Find "AP Log Plotter" in the Start Menu afterward.
+  admin prompt. Find "AP Log Plotter" in the Start Menu afterward. The
+  installer isn't code-signed yet, so SmartScreen will likely show a
+  "Windows protected your PC" prompt the first time you run it - click
+  "More info", then "Run anyway" to proceed.
 - **macOS**: `AP-Log-Plotter.pkg` - installs to `/Applications`, will prompt
   for your password. Find "AP Log Plotter" in Launchpad/Spotlight afterward.
 - **Linux (Debian/Ubuntu)**: `ap-log-plotter_<version>_amd64.deb` - install
@@ -21,9 +24,9 @@ Download the installer for your OS from the
 
 The app checks for a newer release on startup and offers to download and
 install it automatically. None of these installers are code-signed yet, so
-your OS will likely warn you the first time you run one (Windows
-SmartScreen / macOS Gatekeeper) - that's expected until code signing is set
-up, not a sign anything's wrong.
+your OS will likely warn you the first time you run one (SmartScreen on
+Windows, see above; Gatekeeper on macOS) - that's expected until code
+signing is set up, not a sign anything's wrong.
 
 ## Manual Setup
 
