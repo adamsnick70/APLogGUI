@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_support import gui, popups  # noqa: E402,F401
+from test_support import gui, make_log_csv, popups  # noqa: E402,F401
+
+import numpy as np  # noqa: E402
 
 import LogPlotterGUI as gui_module  # noqa: E402
 from test_param_plots import MinMaxLabelTests  # noqa: E402
@@ -31,6 +33,46 @@ class TestVersionDropdown:
         gui._select_ap_version("AP3-SUB-004")
         assert gui.userParams.version == "AP3-SUB-004"
         assert gui.apVersionCombo.currentText() == "AP3-SUB-004"
+
+
+class TestAutoDetectApVersion:
+    """Loading a log whose "AP Info:[...]" column names a different,
+    supported AP version should switch the dropdown to it automatically
+    (see LogPlotterGUI._auto_select_ap_version)."""
+
+    def test_switches_to_the_version_named_in_the_log(self, gui):
+        assert gui.userParams.version == "AP3-SUB-006"
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv", extra_fields={
+                "AP Info:[AP3-SUB-004 v1.0.0.0-11111][Test Vehicle]": np.zeros(200),
+            })
+            gui._refresh_fields(csv_path)
+            assert gui.userParams.version == "AP3-SUB-004"
+            assert gui.apVersionCombo.currentText() == "AP3-SUB-004"
+
+    def test_leaves_version_alone_when_log_names_an_unsupported_version(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv", extra_fields={
+                "AP Info:[AP3-SUB-999 v1.0.0.0-11111][Test Vehicle]": np.zeros(200),
+            })
+            gui._refresh_fields(csv_path)
+            assert gui.userParams.version == "AP3-SUB-006"
+
+    def test_leaves_version_alone_when_log_has_no_ap_info_column(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            gui._refresh_fields(csv_path)
+            assert gui.userParams.version == "AP3-SUB-006"
+
+    def test_does_not_reload_params_when_log_already_matches_active_version(self, gui, monkeypatch):
+        calls = []
+        monkeypatch.setattr(gui, "_select_ap_version", lambda v: calls.append(v))
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv", extra_fields={
+                "AP Info:[AP3-SUB-006 v1.7.6.0-28785][Test Vehicle]": np.zeros(200),
+            })
+            gui._refresh_fields(csv_path)
+            assert calls == []
 
 
 class TestUserParamsEditor:

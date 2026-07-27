@@ -475,6 +475,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._reset_custom_fields()
         self._filter_custom_listbox()
         self._update_autofind_availability()
+        self._auto_select_ap_version(fields)
+
+    def _auto_select_ap_version(self, fields):
+        # The log itself names the AP version it was captured with (see
+        # LogPlotUtil.detect_ap_version) - if that version has params on
+        # file and isn't already selected, switch to it automatically
+        # rather than making the user notice the mismatch and pick it by
+        # hand from the dropdown.
+        detected = LogPlotUtil.detect_ap_version(fields)
+        if (detected and detected != self.userParams.version
+                and detected in self.userParams.available_versions()):
+            self._select_ap_version(detected)
+            self.statusLabel.setText(f"Detected AP version {detected} from log - switched automatically.")
 
     def _update_autofind_availability(self):
         # Throttle-event autofind needs self.userParams.throttleField;
