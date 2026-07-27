@@ -5,6 +5,7 @@ Running from source, APP_VERSION stays "dev" - AutoUpdate.py treats that as
 packaging/{windows,macos,linux}/build.* overwrites this file (via
 tools/stamp_version.py) with the real value just before invoking
 PyInstaller, so the frozen build ships this file resembling
-"2026.07.23+a1b2c3d" (date + short commit SHA), not the literal word "dev".
+"2026.07.23+142.a1b2c3d" (date + CI run number + short commit SHA), not the
+literal word "dev".
 """
 APP_VERSION = "dev"

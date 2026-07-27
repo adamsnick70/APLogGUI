@@ -3,9 +3,12 @@ name: Release
 # A push to master builds all three OS installers and
 # publishes them as one GitHub Release, tagged with that build's stamped
 # version (see tools/stamp_version.py) - AutoUpdate.py's check hits
-# /releases/latest, which GitHub resolves to whichever release was
-# published most recently regardless of its tag name, so no single reused
-# "latest" tag is needed.
+# /releases/latest. Without make_latest below, GitHub infers "latest" from
+# the *tagged commit's* own timestamp rather than actual publish time, so a
+# release for a merge commit with an earlier-looking timestamp than a prior
+# release's can get sorted ahead of it - make_latest: true pins each new
+# release as the latest explicitly instead of relying on that inference, so
+# no single reused "latest" tag is needed.
 on:
   push:
     # PySideUpgrade included so this can be exercised on push before the PR
@@ -136,6 +139,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.version }}
           name: ${{ needs.version.outputs.version }}
+          make_latest: "true"
           files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

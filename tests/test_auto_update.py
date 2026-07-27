@@ -14,18 +14,32 @@ import AutoUpdate  # noqa: E402
 
 class TestIsNewer:
     def test_later_date_is_newer(self):
-        assert AutoUpdate.is_newer("2026.08.01+abc1234", local_version="2026.07.23+def5678")
+        assert AutoUpdate.is_newer("2026.08.01+1.abc1234", local_version="2026.07.23+5.def5678")
 
     def test_earlier_date_is_not_newer(self):
-        assert not AutoUpdate.is_newer("2026.07.01+abc1234", local_version="2026.07.23+def5678")
+        assert not AutoUpdate.is_newer("2026.07.01+99.abc1234", local_version="2026.07.23+5.def5678")
 
-    def test_same_date_different_sha_is_not_newer(self):
-        assert not AutoUpdate.is_newer("2026.07.23+abc1234", local_version="2026.07.23+def5678")
+    def test_same_date_higher_run_number_is_newer(self):
+        # The scenario the date-only comparison used to miss: two releases
+        # published the same calendar day (e.g. two PRs merged in one day)
+        # - the later one has a higher GitHub Actions run number even
+        # though the date part alone is identical.
+        assert AutoUpdate.is_newer("2026.07.23+6.abc1234", local_version="2026.07.23+5.def5678")
+
+    def test_same_date_same_run_number_is_not_newer(self):
+        assert not AutoUpdate.is_newer("2026.07.23+5.abc1234", local_version="2026.07.23+5.def5678")
+
+    def test_legacy_local_version_without_a_run_number_is_superseded(self):
+        # Builds published before the run-number field existed
+        # ("YYYY.MM.DD+<sha>") have no comparable run number - they fall
+        # back to 0, so the first run-numbered release with an equal or
+        # later date always looks newer to them.
+        assert AutoUpdate.is_newer("2026.07.23+1.abc1234", local_version="2026.07.23+def5678")
 
     def test_dev_local_version_is_never_offered_an_update(self):
         # "dev" (a from-source run) has no installed build to replace, so
         # it should never be treated as older than a real dated release.
-        assert not AutoUpdate.is_newer("2026.07.23+abc1234", local_version="dev")
+        assert not AutoUpdate.is_newer("2026.07.23+5.abc1234", local_version="dev")
 
 
 class TestPickAsset:
@@ -71,31 +85,31 @@ class TestCheckForUpdate:
         assert AutoUpdate.check_for_update() is None
 
     def test_older_or_equal_release_means_no_update(self, monkeypatch):
-        monkeypatch.setattr(AutoUpdate, "APP_VERSION", "2026.07.23+def5678")
+        monkeypatch.setattr(AutoUpdate, "APP_VERSION", "2026.07.23+5.def5678")
         monkeypatch.setattr(
             AutoUpdate, "fetch_latest_release",
-            lambda: {"tag_name": "2026.07.23+abc1234", "assets": []},
+            lambda: {"tag_name": "2026.07.23+5.abc1234", "assets": []},
         )
         assert AutoUpdate.check_for_update() is None
 
     def test_newer_release_without_a_matching_asset_means_no_update(self, monkeypatch):
-        monkeypatch.setattr(AutoUpdate, "APP_VERSION", "2026.07.01+def5678")
+        monkeypatch.setattr(AutoUpdate, "APP_VERSION", "2026.07.01+1.def5678")
         monkeypatch.setattr(
             AutoUpdate, "fetch_latest_release",
-            lambda: {"tag_name": "2026.07.23+abc1234", "assets": []},
+            lambda: {"tag_name": "2026.07.23+2.abc1234", "assets": []},
         )
         assert AutoUpdate.check_for_update() is None
 
     def test_newer_release_with_a_matching_asset_is_returned(self, monkeypatch):
-        monkeypatch.setattr(AutoUpdate, "APP_VERSION", "2026.07.01+def5678")
+        monkeypatch.setattr(AutoUpdate, "APP_VERSION", "2026.07.01+1.def5678")
         monkeypatch.setattr(sys.modules["platform"], "system", lambda: "Windows")
         release = {
-            "tag_name": "2026.07.23+abc1234",
+            "tag_name": "2026.07.23+2.abc1234",
             "assets": [{"name": "AP-Log-Plotter-Setup.exe", "browser_download_url": "http://x"}],
         }
         monkeypatch.setattr(AutoUpdate, "fetch_latest_release", lambda: release)
         result = AutoUpdate.check_for_update()
-        assert result[0] == "2026.07.23+abc1234"
+        assert result[0] == "2026.07.23+2.abc1234"
         assert result[1]["name"] == "AP-Log-Plotter-Setup.exe"
 
 
