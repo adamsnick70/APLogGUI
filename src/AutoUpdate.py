@@ -8,14 +8,14 @@ tools/stamp_version.py).
 
 CI (see .github/workflows/release.yml) publishes one GitHub Release per
 build, tagged with that build's exact APP_VERSION string, rather than a
-single reused "latest" tag - GitHub's own `/releases/latest` API already
-resolves to the most recently published release regardless of its tag
-name, so this stays simple and every release keeps a distinct, inspectable
-tag.
+single reused "latest" tag - the release step's make_latest: true pins
+each new release as the one `/releases/latest` resolves to, so this stays
+simple and every release keeps a distinct, inspectable tag.
 """
 import hashlib
 import json
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,11 +36,23 @@ _ASSET_SUFFIX = {
 }
 
 
-def _release_date(version_string):
-    """The sortable "YYYY.MM.DD" part of an APP_VERSION-shaped string
-    ("YYYY.MM.DD+sha") - falls back to the whole string for anything else
-    (e.g. "dev"), which never compares as newer than a real date."""
-    return version_string.split("+", 1)[0]
+_VERSION_RE = re.compile(r'^(\d{4}\.\d{2}\.\d{2})\+(?:(\d+)\.)?\S+$')
+
+
+def _version_key(version_string):
+    """(date, run_number) for an APP_VERSION-shaped string
+    ("YYYY.MM.DD+<run_number>.<sha>"), used to order builds for the "is a
+    newer version available" check. The run number - not the date - is
+    what actually orders same-day builds correctly (see
+    tools/stamp_version.py); it defaults to 0 for the older
+    "YYYY.MM.DD+<sha>" shape (releases published before the run number was
+    added) or anything else unparsable, so those always compare as no
+    newer than a real, run-numbered release with an equal or later date."""
+    match = _VERSION_RE.match(version_string)
+    if not match:
+        return ("", 0)
+    date, run_number = match.groups()
+    return (date, int(run_number) if run_number else 0)
 
 
 def is_newer(remote_version, local_version=None):
@@ -51,7 +63,11 @@ def is_newer(remote_version, local_version=None):
     # whatever APP_VERSION was at import time instead.
     if local_version is None:
         local_version = APP_VERSION
-    return _release_date(remote_version) > _release_date(local_version)
+    if local_version == "dev":
+        # A from-source run has no installed build to replace - never nag
+        # it to update (see version.py).
+        return False
+    return _version_key(remote_version) > _version_key(local_version)
 
 
 def fetch_latest_release(timeout=10):
