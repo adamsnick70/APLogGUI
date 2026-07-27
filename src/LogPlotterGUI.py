@@ -115,6 +115,17 @@ BASE_PLOT_WIDTH_PX = 2000
 BASE_PLOT_HEIGHT_PX = 800
 HEIGHT_FALLOFF = 0.75
 
+# Custom Plot tab: the field-selection area (search/selected lists) and the
+# chart area below it are both Expanding widgets, so with no explicit
+# stretch they'd split customTabLayout's height 1:1. That leaves the chart
+# cramped, so it's weighted 7:10 instead - about an 18% smaller selection
+# area than an even split, freeing that space for the chart. (Set here
+# rather than in the .ui file - pyside6-uic mishandles QVBoxLayout's
+# "stretch" property, passing it to setStretch() as a single string arg
+# instead of splitting it per item.)
+CUSTOM_SETUP_STRETCH = 7
+CUSTOM_PLOT_STRETCH = 10
+
 
 def _plot_height_for_width(avail_width_px, avail_height_px=None):
     width_ratio = max(avail_width_px, 1) / BASE_PLOT_WIDTH_PX
@@ -215,6 +226,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # at - see _plot_height_for_width.
         self._paramPlotHeight = BASE_PLOT_HEIGHT_PX
         self._customPlotHeight = BASE_PLOT_HEIGHT_PX
+
+        self.customTabLayout.setStretch(0, CUSTOM_SETUP_STRETCH)
+        self.customTabLayout.setStretch(2, CUSTOM_PLOT_STRETCH)
 
         self._restore_geometry()
         self.apVersionCombo.installEventFilter(self)
