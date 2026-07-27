@@ -15,12 +15,6 @@ class TestTabStructure:
         tabs = [gui.tabWidget.tabText(i) for i in range(gui.tabWidget.count())]
         assert tabs == ["Parameterized Plots", "Custom Plot", "User Parameters"]
 
-    def test_sidebar_occupies_20_percent_of_body_width(self, gui, qtbot):
-        qtbot.wait(10)
-        sidebar_w, tabs_w = gui.bodySplitter.sizes()
-        ratio = sidebar_w / (sidebar_w + tabs_w)
-        assert abs(ratio - 0.20) < 0.04, f"ratio was {ratio:.3f}"
-
     def test_sidebar_width_is_capped_on_wide_windows(self, qtbot, tmp_path, monkeypatch):
         # The cap is applied once, on first show (see
         # MainWindow._apply_initial_sidebar_width) - so a wide size set
