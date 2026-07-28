@@ -7,7 +7,7 @@ from InteractiveViewBox import make_interactive_plot_widget
 
 # Spec reference lines are always red-dashed, same as the Tkinter version's
 # 'r--' lines, regardless of which series they accompany.
-_SPEC_PEN = pg.mkPen(color="#d62728", width=1.5, style=Qt.PenStyle.DashLine)
+_SPEC_PEN = pg.mkPen(color="#d62728", width=2.0, style=Qt.PenStyle.DashLine)
 
 
 class ParamPlotUtil(LogPlotUtil):

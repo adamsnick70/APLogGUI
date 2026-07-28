@@ -27,7 +27,7 @@ _TAB10_PALETTE = (
 def pen_for_index(index, dashed=False):
     color = _TAB10_PALETTE[index % len(_TAB10_PALETTE)]
     style = Qt.PenStyle.DashLine if dashed else Qt.PenStyle.SolidLine
-    return pg.mkPen(color=color, width=1.5, style=style)
+    return pg.mkPen(color=color, width=2.0, style=style)
 
 
 def _default_user_params():
