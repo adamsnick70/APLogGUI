@@ -528,14 +528,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         throttle_present = self.userParams.throttleField in self.allFields
         if not throttle_present:
-            self._apply_autofind_availability(
-                self.paramAutoFindCheck, self.paramAutoFindThreshLabel, self.paramAutoFindThreshEdit,
-                "_paramAutofindAvailable", False,
-            )
-            self._apply_autofind_availability(
-                self.customAutoFindCheck, self.customThreshLabel, self.customThreshEdit,
-                "_customAutofindAvailable", False,
-            )
+            self._apply_autofind_availability(self.paramAutoFindCheck, "_paramAutofindAvailable", False)
+            self._apply_autofind_availability(self.customAutoFindCheck, "_customAutofindAvailable", False)
             return
 
         # The field being present isn't enough - a log with the throttle
@@ -551,12 +545,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception:
             fl = None
         self._apply_autofind_availability(
-            self.paramAutoFindCheck, self.paramAutoFindThreshLabel, self.paramAutoFindThreshEdit,
-            "_paramAutofindAvailable", self._log_has_throttle_events(fl, scanner, self.paramAutoFindThreshEdit),
+            self.paramAutoFindCheck, "_paramAutofindAvailable",
+            self._log_has_throttle_events(fl, scanner, self.paramAutoFindThreshEdit),
         )
         self._apply_autofind_availability(
-            self.customAutoFindCheck, self.customThreshLabel, self.customThreshEdit,
-            "_customAutofindAvailable", self._log_has_throttle_events(fl, scanner, self.customThreshEdit),
+            self.customAutoFindCheck, "_customAutofindAvailable",
+            self._log_has_throttle_events(fl, scanner, self.customThreshEdit),
         )
 
     def _log_has_throttle_events(self, fl, scanner, thresh_edit):
@@ -566,20 +560,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             scanner.throttle_threshold = float(thresh_edit.text())
         except ValueError:
             return False
-        return scanner._findThrottleEvents(fl) is not None
+        return scanner._findThrottleEvents(fl, quiet=True) is not None
 
-    def _apply_autofind_availability(self, checkbox, thresh_label, thresh_edit, state_attr, available):
-        # Hidden rather than just disabled when unavailable, so a log with
-        # no usable throttle data doesn't leave a dead control cluttering
-        # the tab (see _regenerate_custom_plot's/paramAutoFindCheck's
-        # threshold controls). isVisible() can't tell us whether this is a
-        # change - it's always False for the currently-inactive tab - so
-        # the previous state is tracked in the named self.<state_attr>
-        # instead.
+    def _apply_autofind_availability(self, checkbox, state_attr, available):
+        # Only the checkbox (and its own label text) hides when there's no
+        # qualifying event - the threshold field/label next to it stay
+        # visible and editable regardless, since the user needs them to
+        # lower (or raise) the threshold back into range; hiding them too
+        # would leave no way to do that once they'd vanished. isVisible()
+        # can't tell us whether this is a change - it's always False for
+        # the currently-inactive tab - so the previous state is tracked in
+        # the named self.<state_attr> instead.
         was_available = getattr(self, state_attr)
         checkbox.setVisible(available)
-        thresh_label.setVisible(available)
-        thresh_edit.setVisible(available)
         if not available:
             checkbox.setChecked(False)
         elif not was_available:

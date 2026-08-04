@@ -19,6 +19,7 @@ plotFields = {
     ],
     "Boost": [
         ("Throttle Pos (%)", 0.1, False),
+        ("Wastegate Duty (%)", 0.1, False),
         ("Boost (psi)", 1, True),
         ("TD Boost Error Ext (psi)", 1, False),
     ],

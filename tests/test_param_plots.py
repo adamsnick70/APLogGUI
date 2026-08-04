@@ -44,21 +44,29 @@ class TestAutofind:
             assert len(gui.paramFigures) >= 1
 
     def test_autofind_hidden_when_throttle_field_missing(self, gui):
-        # Hidden rather than merely disabled, so a log with no usable
-        # throttle data doesn't leave a dead control cluttering either tab.
+        # Only the checkbox hides - the threshold field/label stay put on
+        # both tabs (see the two tests below) so there's always a way to
+        # adjust the threshold, even while autofind itself is unavailable.
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = make_log_csv_without_throttle(Path(tmp) / "log.csv")
             gui._refresh_fields(csv_path)
             assert not gui.paramAutoFindCheck.isVisible()
-            assert not gui.paramAutoFindThreshLabel.isVisible()
-            assert not gui.paramAutoFindThreshEdit.isVisible()
             assert not gui.paramAutoFindCheck.isChecked()
 
             gui.tabWidget.setCurrentIndex(1)
             assert not gui.customAutoFindCheck.isVisible()
-            assert not gui.customThreshLabel.isVisible()
-            assert not gui.customThreshEdit.isVisible()
             assert not gui.customAutoFindCheck.isChecked()
+
+    def test_threshold_field_stays_visible_even_when_throttle_field_missing(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv_without_throttle(Path(tmp) / "log.csv")
+            gui._refresh_fields(csv_path)
+            assert gui.paramAutoFindThreshLabel.isVisible()
+            assert gui.paramAutoFindThreshEdit.isVisible()
+
+            gui.tabWidget.setCurrentIndex(1)
+            assert gui.customThreshLabel.isVisible()
+            assert gui.customThreshEdit.isVisible()
 
     def test_autofind_reappears_once_throttle_field_is_present_again(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,8 +75,6 @@ class TestAutofind:
             gui._refresh_fields(no_throttle)
             gui._refresh_fields(with_throttle)
             assert gui.paramAutoFindCheck.isVisible()
-            assert gui.paramAutoFindThreshLabel.isVisible()
-            assert gui.paramAutoFindThreshEdit.isVisible()
 
     def test_autofind_hidden_when_throttle_field_present_but_no_events_cross_threshold(self, gui):
         # The field itself being present isn't enough - a log where
@@ -79,10 +85,12 @@ class TestAutofind:
             gui._refresh_fields(csv_path)
             assert not gui.paramAutoFindCheck.isVisible()
             assert not gui.paramAutoFindCheck.isChecked()
+            assert gui.paramAutoFindThreshEdit.isVisible()
 
             gui.tabWidget.setCurrentIndex(1)
             assert not gui.customAutoFindCheck.isVisible()
             assert not gui.customAutoFindCheck.isChecked()
+            assert gui.customThreshEdit.isVisible()
 
     def test_autofind_reappears_when_threshold_is_lowered_below_the_events_peak(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,6 +101,26 @@ class TestAutofind:
             gui.paramAutoFindThreshEdit.setText("40")
             gui.paramAutoFindThreshEdit.editingFinished.emit()
             assert gui.paramAutoFindCheck.isVisible()
+
+    def test_threshold_field_stays_editable_after_raising_it_above_the_events_peak(self, gui):
+        # Regression case: threshold 25 -> load a log with a 40% event ->
+        # raise the threshold to 50 (above the event, so autofind becomes
+        # unavailable). The threshold field must not vanish along with the
+        # checkbox, or there'd be no way to lower it back down again.
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv", throttle_high=40.0)
+            gui.paramAutoFindThreshEdit.setText("25")
+            gui.paramAutoFindThreshEdit.editingFinished.emit()
+            gui._refresh_fields(csv_path)
+            assert gui.paramAutoFindCheck.isVisible()
+
+            gui.paramAutoFindThreshEdit.setText("50")
+            gui.paramAutoFindThreshEdit.editingFinished.emit()
+            assert not gui.paramAutoFindCheck.isVisible()
+            assert gui.paramAutoFindThreshLabel.isVisible()
+            assert gui.paramAutoFindThreshEdit.isVisible()
+            assert gui.paramAutoFindThreshEdit.isEnabled()
+            assert gui.paramAutoFindThreshEdit.text() == "50"
 
     def test_autofind_defaults_to_checked_when_it_reappears_after_being_hidden(self, gui):
         with tempfile.TemporaryDirectory() as tmp:
