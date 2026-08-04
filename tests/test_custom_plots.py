@@ -8,6 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_support import gui, make_log_csv  # noqa: E402,F401
 
+import numpy as np  # noqa: E402
+
 
 class TestFieldSelection:
     def test_time_field_is_never_a_selectable_series(self, gui):
@@ -81,7 +83,7 @@ class TestCustomAutofind:
             assert all(f["field"] != gui.userParams.throttleField for f in gui.customFields)
 
             gui.customAutoFindCheck.setChecked(True)
-            gui._plot_custom()
+            gui._regenerate_custom_plot()
             assert len(gui.customFigures) >= 1
 
     def test_autofind_off_produces_one_chart_for_the_whole_log(self, gui):
@@ -92,7 +94,7 @@ class TestCustomAutofind:
             _select_field(gui, "Custom Sensor A")
 
             gui.customAutoFindCheck.setChecked(False)
-            gui._plot_custom()
+            gui._regenerate_custom_plot()
             assert len(gui.customFigures) == 1
 
 
@@ -115,7 +117,7 @@ class TestCustomPdfButton:
             _select_field(gui, "Custom Sensor A")
 
             gui.customAutoFindCheck.setChecked(False)
-            gui._plot_custom()
+            gui._regenerate_custom_plot()
 
             assert gui.customPdfButton.isVisible()
             assert gui.customPdfButton.sizeHint().width() == gui.paramPdfButton.sizeHint().width()
@@ -139,7 +141,148 @@ class TestCustomTabLayout:
             gui._refresh_fields(csv_path)
             _select_field(gui, "Custom Sensor A")
             gui.customAutoFindCheck.setChecked(False)
-            gui._plot_custom()
+            gui._regenerate_custom_plot()
 
             assert len(gui.customFigures) == 1
             assert gui.customFigures[0].getPlotItem().titleLabel.text == "Custom Plot"
+
+    def test_no_plot_button_on_this_tab(self, gui):
+        # Replaced by regeneration on every add/remove/rescale/autofind
+        # change - see TestAutoRegeneration below.
+        assert not hasattr(gui, "customPlotButton")
+
+
+class TestFieldSelectionsAcrossLogReloads:
+    """Loading a new log used to unconditionally wipe the Custom Plots
+    tab's selections. Now it only does that when the new log's AP version
+    differs from the previous one - see LogPlotterGUI._refresh_fields."""
+
+    def test_kept_when_the_new_log_is_the_same_ap_version(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = make_log_csv(Path(tmp) / "first.csv")
+            second = make_log_csv(Path(tmp) / "second.csv", extra_fields={
+                "AP Info:[AP3-SUB-006 v1.7.6.0-28785][Test Vehicle]": np.zeros(200),
+                "Custom Sensor A (V)": np.sin(np.linspace(0, 10, 200)),
+            })
+            gui.logPathEdit.setText(first)
+            gui._refresh_fields(first)
+            _select_field(gui, "Custom Sensor A")
+            assert len(gui.customFields) == 1
+
+            gui.logPathEdit.setText(second)
+            gui._refresh_fields(second)
+            assert gui.userParams.version == "AP3-SUB-006"
+            assert [f["field"] for f in gui.customFields] == ["Custom Sensor A (V)"]
+
+    def test_cleared_when_the_new_log_names_a_different_ap_version(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = make_log_csv(Path(tmp) / "first.csv")
+            second = make_log_csv(Path(tmp) / "second.csv", extra_fields={
+                "AP Info:[AP3-SUB-004 v1.0.0.0-11111][Test Vehicle]": np.zeros(200),
+                "Custom Sensor A (V)": np.sin(np.linspace(0, 10, 200)),
+            })
+            gui.logPathEdit.setText(first)
+            gui._refresh_fields(first)
+            _select_field(gui, "Custom Sensor A")
+            assert len(gui.customFields) == 1
+
+            gui.logPathEdit.setText(second)
+            gui._refresh_fields(second)
+            assert gui.userParams.version == "AP3-SUB-004"
+            assert gui.customFields == []
+
+    def test_plot_is_regenerated_against_the_new_log_when_version_is_unchanged(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = make_log_csv(Path(tmp) / "first.csv")
+            second = make_log_csv(Path(tmp) / "second.csv", extra_fields={
+                "AP Info:[AP3-SUB-006 v1.7.6.0-28785][Test Vehicle]": np.zeros(200),
+                "Custom Sensor A (V)": np.sin(np.linspace(0, 10, 200)),
+            })
+            gui.logPathEdit.setText(first)
+            gui._refresh_fields(first)
+            _select_field(gui, "Custom Sensor A")
+            gui.customAutoFindCheck.setChecked(False)
+            gui._regenerate_custom_plot()
+            assert len(gui.customFigures) == 1
+
+            # Loading the second log should re-plot on its own, with no
+            # explicit _regenerate_custom_plot() call needed.
+            gui.logPathEdit.setText(second)
+            gui._refresh_fields(second)
+            assert len(gui.customFigures) == 1
+
+
+class TestAutoRegeneration:
+    """The Custom Plot tab has no Plot button - the chart regenerates
+    itself whenever a field is added, removed, or rescaled, or the
+    autofind checkbox/threshold changes."""
+
+    def test_adding_a_field_regenerates_the_plot(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.customAutoFindCheck.setChecked(False)
+
+            assert gui.customFigures == []
+            _select_field(gui, "Custom Sensor A")
+            assert len(gui.customFigures) == 1
+
+    def test_removing_the_last_field_clears_the_plot(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.customAutoFindCheck.setChecked(False)
+            _select_field(gui, "Custom Sensor A")
+            assert len(gui.customFigures) == 1
+
+            gui._remove_custom_field(gui.customFields[0])
+            assert gui.customFigures == []
+
+    def test_finishing_a_rescale_edit_regenerates_the_plot(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.customAutoFindCheck.setChecked(False)
+            _select_field(gui, "Custom Sensor A")
+
+            entry = gui.customFields[0]
+            entry["scale_edit"].setText("2.5")
+            entry["scale_edit"].editingFinished.emit()
+
+            assert len(gui.customFigures) == 1
+            label = gui.customFigures[0].getPlotItem().legend.items[0][1].text
+            assert "* 2.5" in label
+
+    def test_toggling_autofind_regenerates_the_plot(self, gui):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.customAutoFindCheck.setChecked(False)
+            _select_field(gui, "Custom Sensor A")
+            assert len(gui.customFigures) == 1
+
+            gui.customAutoFindCheck.setChecked(True)
+            assert len(gui.customFigures) >= 1
+
+    def test_invalid_scale_is_reported_without_a_modal_popup(self, gui):
+        # No Plot button/click to blame this on anymore - an in-progress
+        # edit shouldn't interrupt typing with a dialog (see popups).
+        from test_support import popups
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = make_log_csv(Path(tmp) / "log.csv")
+            gui.logPathEdit.setText(csv_path)
+            gui._refresh_fields(csv_path)
+            gui.customAutoFindCheck.setChecked(False)
+            _select_field(gui, "Custom Sensor A")
+            popups.clear()
+
+            entry = gui.customFields[0]
+            entry["scale_edit"].setText("not-a-number")
+            entry["scale_edit"].editingFinished.emit()
+
+            assert popups == []
+            assert "must be a number" in gui.statusLabel.text()

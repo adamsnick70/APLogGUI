@@ -198,6 +198,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._fields_loaded_path = None
         self._userParamsBaseline = ""
         self._sidebar_sized = False
+        # Tracked separately from the widgets' own isVisible() - that
+        # reflects on-screen visibility, which is always False for the
+        # inactive tab's controls regardless of what we set, so it can't
+        # tell us whether autofind was previously unavailable (see
+        # _apply_autofind_availability). Both start available, matching
+        # the .ui's checked-by-default state before any log is loaded.
+        self._paramAutofindAvailable = True
+        self._customAutofindAvailable = True
 
         # Each tab keeps its own plot-widget list so switching tabs doesn't
         # discard the other tab's plots.
@@ -219,7 +227,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # zooming (see eventFilter).
         self._plot_scroll_map = {}
         # Recomputed whenever the plot area's size changes - on the initial
-        # plot pass (see _plot_parameterized/_plot_custom) and again on every
+        # plot pass (see _plot_parameterized/_regenerate_custom_plot) and again on every
         # live resize of the scroll area's viewport (see eventFilter) so a
         # window snapped to a different size re-scales plots already on
         # screen instead of leaving them at whatever size they were plotted
@@ -245,9 +253,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.markDefaultButton.clicked.connect(self._mark_version_default)
         self.userParamsTextEdit.textChanged.connect(self._update_save_prefs_button)
         self.paramPlotButton.clicked.connect(self._plot_parameterized)
-        self.customPlotButton.clicked.connect(self._plot_custom)
         self.paramPdfButton.clicked.connect(self._save_pdf_param)
         self.customPdfButton.clicked.connect(self._save_pdf_custom)
+        # Custom Plots tab has no Plot button - it regenerates itself
+        # whenever a field is added/removed/rescaled or these two settings
+        # change (see _regenerate_custom_plot / _add_custom_field_row for
+        # the rest of the triggers).
+        self.customAutoFindCheck.toggled.connect(self._regenerate_custom_plot)
+        self.customThreshEdit.editingFinished.connect(self._update_autofind_availability)
+        self.customThreshEdit.editingFinished.connect(self._regenerate_custom_plot)
+        self.paramAutoFindThreshEdit.editingFinished.connect(self._update_autofind_availability)
 
         self._populate_field_panel([])
         self._select_ap_version(self.app_config.get("ap_version", DEFAULT_VERSION))
@@ -468,14 +483,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # Field list sidebar + custom field picker
     # ------------------------------------------------------------------
     def _refresh_fields(self, path):
+        old_version = self.userParams.version
         fields = LogPlotUtil.list_fields(path)
         self.allFields = fields
         self._fields_loaded_path = path
         self._populate_field_panel(fields)
-        self._reset_custom_fields()
         self._filter_custom_listbox()
-        self._update_autofind_availability()
+        # May itself switch AP version, which already refreshes autofind
+        # availability (see _select_ap_version) - only do it again below if
+        # that didn't happen, so a version switch doesn't scan the log twice.
         self._auto_select_ap_version(fields)
+        if self.userParams.version == old_version:
+            self._update_autofind_availability()
+            if self.customFields:
+                # Same AP version as the previous log and fields are still
+                # selected - regenerate against the new log instead of
+                # silently leaving stale charts on screen.
+                self._regenerate_custom_plot()
+        else:
+            # AP version changed - the previous selections were built
+            # against a different parameter set and may no longer apply.
+            self._reset_custom_fields()
 
     def _auto_select_ap_version(self, fields):
         # The log itself names the AP version it was captured with (see
@@ -493,17 +521,66 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Throttle-event autofind needs self.userParams.throttleField;
         # without it there's nothing to detect events from, in either tab.
         # Before any log is loaded there's nothing to check yet - both boxes
-        # stay at their checked-by-default state instead of being disabled,
+        # stay at their checked-by-default state instead of being hidden,
         # since this also runs at startup (via _select_ap_version) before
         # the user has picked a log.
         if not self.allFields:
             return
         throttle_present = self.userParams.throttleField in self.allFields
-        self.paramAutoFindCheck.setEnabled(throttle_present)
-        self.customAutoFindCheck.setEnabled(throttle_present)
         if not throttle_present:
-            self.paramAutoFindCheck.setChecked(False)
-            self.customAutoFindCheck.setChecked(False)
+            self._apply_autofind_availability(self.paramAutoFindCheck, "_paramAutofindAvailable", False)
+            self._apply_autofind_availability(self.customAutoFindCheck, "_customAutofindAvailable", False)
+            return
+
+        # The field being present isn't enough - a log with the throttle
+        # column but no sample crossing the threshold has nothing for
+        # autofind to lock onto either, so scan for actual events too. One
+        # read of the log covers both tabs; only the threshold (and
+        # therefore the event scan) can differ between them.
+        scanner = None
+        fl = None
+        try:
+            scanner = LogPlotUtil(self._fields_loaded_path, 0, userParams=self.userParams)
+            fl = scanner._readLog()
+        except Exception:
+            fl = None
+        self._apply_autofind_availability(
+            self.paramAutoFindCheck, "_paramAutofindAvailable",
+            self._log_has_throttle_events(fl, scanner, self.paramAutoFindThreshEdit),
+        )
+        self._apply_autofind_availability(
+            self.customAutoFindCheck, "_customAutofindAvailable",
+            self._log_has_throttle_events(fl, scanner, self.customThreshEdit),
+        )
+
+    def _log_has_throttle_events(self, fl, scanner, thresh_edit):
+        if fl is None:
+            return False
+        try:
+            scanner.throttle_threshold = float(thresh_edit.text())
+        except ValueError:
+            return False
+        return scanner._findThrottleEvents(fl, quiet=True) is not None
+
+    def _apply_autofind_availability(self, checkbox, state_attr, available):
+        # Only the checkbox (and its own label text) hides when there's no
+        # qualifying event - the threshold field/label next to it stay
+        # visible and editable regardless, since the user needs them to
+        # lower (or raise) the threshold back into range; hiding them too
+        # would leave no way to do that once they'd vanished. isVisible()
+        # can't tell us whether this is a change - it's always False for
+        # the currently-inactive tab - so the previous state is tracked in
+        # the named self.<state_attr> instead.
+        was_available = getattr(self, state_attr)
+        checkbox.setVisible(available)
+        if not available:
+            checkbox.setChecked(False)
+        elif not was_available:
+            # Reappearing after being hidden - back to the checked-by-
+            # default state rather than whatever was left over from before
+            # it became unavailable.
+            checkbox.setChecked(True)
+        setattr(self, state_attr, available)
 
     def _populate_field_panel(self, fields):
         self.fieldPanel.setPlainText("\n".join(fields) if fields else "No log file selected.")
@@ -524,12 +601,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not selected_items:
             return
         existing = {f["field"] for f in self.customFields}
+        added = False
         for item in selected_items:
             field = item.text()
             if field in existing:
                 continue
             self._add_custom_field_row(field)
             existing.add(field)
+            added = True
+        if added:
+            self._regenerate_custom_plot()
 
     def _add_custom_field_row(self, field):
         row = QWidget(self.customSelectedContainer)
@@ -539,6 +620,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         layout.addWidget(QLabel("Scale:"))
         scale_edit = QLineEdit("1")
         scale_edit.setMaximumWidth(60)
+        scale_edit.editingFinished.connect(self._regenerate_custom_plot)
         layout.addWidget(scale_edit)
         entry = {"field": field, "scale_edit": scale_edit, "row": row}
         remove_button = QPushButton("Remove")
@@ -552,6 +634,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _remove_custom_field(self, entry):
         self.customFields = [f for f in self.customFields if f is not entry]
         entry["row"].deleteLater()
+        self._regenerate_custom_plot()
 
     def _reset_custom_fields(self):
         for f in self.customFields:
@@ -611,13 +694,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # that real size - see LegendPlacement.
         QTimer.singleShot(0, self._reposition_param_legends)
 
-    def _plot_custom(self):
+    def _regenerate_custom_plot(self):
+        # No Plot button on this tab - this runs instead, any time a field
+        # is added/removed/rescaled or the autofind checkbox/threshold
+        # changes (see the .connect() calls in __init__ and
+        # _add_custom_field_row). Since there's no explicit user action to
+        # blame invalid/incomplete state on, "not ready yet" states are
+        # reported on the status bar and just skip regenerating, rather
+        # than interrupting typing with a modal dialog.
         path = self.logPathEdit.text().strip()
         if not path:
-            QMessageBox.critical(self, "No log selected", "Choose a log file first.")
             return
         if not self.customFields:
-            QMessageBox.critical(self, "No fields selected", "Search and add at least one field to plot.")
+            self._clear_plot_layout(self.customPlotScrollLayout, self.customFigures)
+            self.customPlotSequence = []
+            self._update_custom_pdf_button()
+            self.statusLabel.setText("No fields selected.")
             return
 
         fields_scales = []
@@ -625,14 +717,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             try:
                 scale = float(entry["scale_edit"].text())
             except ValueError:
-                QMessageBox.critical(self, "Invalid input", f"Scale for '{entry['field']}' must be a number.")
+                self.statusLabel.setText(f"Scale for '{entry['field']}' must be a number.")
                 return
             fields_scales.append((entry["field"], scale))
 
         try:
             thresh = float(self.customThreshEdit.text())
         except ValueError:
-            QMessageBox.critical(self, "Invalid input", "Throttle threshold must be a number.")
+            self.statusLabel.setText("Throttle threshold must be a number.")
             return
 
         auto_find = self.customAutoFindCheck.isChecked()

@@ -147,10 +147,17 @@ class LogPlotUtil:
 
         return arr_out
 
-    def _findThrottleEvents(self, fl):
+    def _findThrottleEvents(self, fl, quiet=False):
+        # quiet=True for LogPlotterGUI's background autofind-availability
+        # scan (see _update_autofind_availability) - that runs on every log
+        # load/threshold edit rather than a deliberate Plot action, so a
+        # "not found" there isn't a user-facing plotting failure worth
+        # printing, unlike the same outcome from an actual _plotLog/
+        # _plotCustomLog call.
         throttle_field = self.userParams.throttleField
         if throttle_field not in fl.columns:
-            print(f"ERROR - '{throttle_field}' not found in CSV. Turn off autofind to view log...")
+            if not quiet:
+                print(f"ERROR - '{throttle_field}' not found in CSV. Turn off autofind to view log...")
             return None
         # throttle_threshold is a 0-100 percentage (see UserParams/GUI); the
         # throttle column is already in percentage units, so it's compared
@@ -158,6 +165,7 @@ class LogPlotUtil:
         throttle = np.float32([fl[throttle_field]]).reshape((-1))
         event_times = self._autoFind(throttle)
         if len(event_times) == 0:
-            print("ERROR - No Full Throttle events found. Turn off autofind to view log...")
+            if not quiet:
+                print("ERROR - No Full Throttle events found. Turn off autofind to view log...")
             return None
         return event_times
