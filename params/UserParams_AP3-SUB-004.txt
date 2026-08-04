@@ -65,9 +65,9 @@ plotLimits = {
     "Boost": (-2, 20.5),
     "Air": (0, 15),
     "Fuel": (-15, 33),
-    "Timing": (-5, 10.1),
-    "KS Noise": (0, 3000),
-    "AVCS / EGR": (-10, 31),
+    "Timing": (),
+    "KS Noise": (0, 3500),
+    "AVCS / EGR": (),
 }
 
 plotSpecs = {
